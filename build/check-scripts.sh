@@ -30,7 +30,7 @@ SECRET_NAMES='FINNHUB_API_KEY|RESEND_API_KEY|SMTP_PASSWORD|CRON_SECRET|DATABASE_
 if grep -rnE "(${SECRET_NAMES})[[:space:]]*[=:][[:space:]]*[\"'][A-Za-z0-9_/+-]{12,}[\"']" \
         --include='*.ts' --include='*.tsx' --include='*.mjs' --include='*.json' \
         --include='*.yml' --include='*.sh' \
-        --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=src/generated \
+        --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=generated \
         . 2>/dev/null | grep -v '\.env\.example'; then
     fail "a credential looks hard-coded above — move it to the environment"
 else
@@ -81,7 +81,7 @@ for provider in finnhub resend nodemailer; do
         fi
     done < <(grep -rlniE "\b${provider}\b" \
         --include='*.ts' --include='*.tsx' \
-        --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=src/generated \
+        --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=generated \
         src 2>/dev/null | grep -viE "src/server/(market|email)/(${provider}|index)\.ts$" \
                         | grep -viE "src/lib/env\.ts$" || true)
     if [[ -n "${hits}" ]]; then

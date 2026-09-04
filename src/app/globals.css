@@ -7,7 +7,7 @@
  * leaderboard.
  *
  * Positive and negative are not pure red/green. Pure #00ff00 on white fails
- * contrast and pure red reads as an error rather than as a loss.
+ * contrast, and pure red reads as an error rather than as a loss.
  */
 @theme {
   --color-ink-50: #f6f7f9;
@@ -15,7 +15,7 @@
   --color-ink-200: #d7dbe3;
   --color-ink-300: #b3bac8;
   --color-ink-400: #8a93a6;
-  --color-ink-500: #67718696;
+  --color-ink-500: #677186;
   --color-ink-600: #4d566a;
   --color-ink-700: #3a4254;
   --color-ink-800: #232a38;
@@ -51,6 +51,41 @@
   --radius-card: 0.875rem;
 }
 
+/*
+ * Chart colours live OUTSIDE @theme, deliberately.
+ *
+ * Tailwind 4 tree-shakes any theme variable that no utility class references,
+ * and these are consumed from TypeScript — an SVG `fill` and an inline
+ * `style` — so nothing references them as a class. Inside @theme the light
+ * values were dropped from the build entirely and every donut slice painted
+ * black, while the dark values survived because they were already in a plain
+ * :root block. That asymmetry is what made the bug invisible in dark mode.
+ *
+ * Slots are assigned in fixed order and never cycled: a ninth holding folds
+ * into "Other" rather than being given a generated hue.
+ *
+ * Validated with the dataviz palette checker in both modes — worst adjacent
+ * CVD ΔE 9.1 light / 8.4 dark against a ≥8 target, worst normal-vision ΔE 19.6
+ * / 19.3 against a ≥15 floor. Three light steps sit below 3:1 contrast on the
+ * surface, so every chart using them ships visible labels and a table view;
+ * the legend and the holdings table are that relief.
+ */
+:root {
+  --color-series-1: #2a78d6;
+  --color-series-2: #eb6834;
+  --color-series-3: #1baf7a;
+  --color-series-4: #eda100;
+  --color-series-5: #e87ba4;
+  --color-series-6: #008300;
+  --color-series-7: #4a3aa7;
+  --color-series-8: #e34948;
+
+  /* Cash and the folded "Other" tail. Neither is a series — spending a
+     categorical hue on them would make eight real holdings share seven. */
+  --chart-cash: #b3bac8;
+  --chart-other: #8a93a6;
+}
+
 :root {
   --surface: #ffffff;
   --surface-raised: #ffffff;
@@ -61,6 +96,14 @@
   color-scheme: light;
 }
 
+/*
+ * The dark values are declared under both scopes: the media query covers the OS
+ * setting, the data-theme scope covers an explicit choice, and the :not() guard
+ * lets a light stamp beat OS-dark. The series steps are the same eight hues
+ * re-stepped for the dark surface, not an automatic lightening of the light
+ * ones — an inverted palette drifts out of the lightness band and stops
+ * validating.
+ */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --surface: var(--color-ink-950);
@@ -70,6 +113,17 @@
     --text: var(--color-ink-50);
     --text-muted: var(--color-ink-400);
     color-scheme: dark;
+
+    --color-series-1: #3987e5;
+    --color-series-2: #d95926;
+    --color-series-3: #199e70;
+    --color-series-4: #c98500;
+    --color-series-5: #d55181;
+    --color-series-6: #008300;
+    --color-series-7: #9085e9;
+    --color-series-8: #e66767;
+    --chart-cash: #4d566a;
+    --chart-other: #677186;
   }
 }
 
@@ -81,6 +135,17 @@
   --text: var(--color-ink-50);
   --text-muted: var(--color-ink-400);
   color-scheme: dark;
+
+  --color-series-1: #3987e5;
+  --color-series-2: #d95926;
+  --color-series-3: #199e70;
+  --color-series-4: #c98500;
+  --color-series-5: #d55181;
+  --color-series-6: #008300;
+  --color-series-7: #9085e9;
+  --color-series-8: #e66767;
+  --chart-cash: #4d566a;
+  --chart-other: #677186;
 }
 
 body {

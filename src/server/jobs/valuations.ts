@@ -90,9 +90,13 @@ export async function snapshotValuations(
       orderBy: { asOfDate: "desc" },
     });
 
-    const flowInPeriodCents = previous
-      ? portfolio.netFlowCents - previous.netFlowCents
-      : portfolio.netFlowCents - portfolio.initialCapitalCents;
+    // Zero on the first valuation, NOT minus the initial capital. The starting
+    // grant is the baseline the return is measured FROM, not a flow that
+    // happened during the period. Treating it as a flow made the first chain
+    // link's base zero, which the TWR skips — so every portfolio's return was
+    // measured from its first close rather than from its starting capital, and
+    // the leaderboard disagreed with the value column beside it.
+    const flowInPeriodCents = previous ? portfolio.netFlowCents - previous.netFlowCents : 0n;
 
     const dailyReturnPpm = previous
       ? periodReturnPpm(previous.totalValueCents, value.totalValueCents, flowInPeriodCents)
@@ -111,8 +115,11 @@ export async function snapshotValuations(
       ? periodReturnPpm(weekAgo.totalValueCents, value.totalValueCents)
       : null;
 
+    // Strictly BEFORE this date. A re-run finds its own previous row still
+    // present — it is deleted further down — and including it would put the
+    // same day in the chain twice.
     const series = await db.portfolioValuation.findMany({
-      where: { portfolioId: portfolio.id, kind: "EOD", asOfDate: { lte: asOfDate } },
+      where: { portfolioId: portfolio.id, kind: "EOD", asOfDate: { lt: asOfDate } },
       orderBy: { asOfDate: "asc" },
       select: { totalValueCents: true, flowInPeriodCents: true },
     });

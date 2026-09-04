@@ -20,7 +20,13 @@ const config = [
       // Money is bigint and prices are integers. `==` between a bigint and a
       // number coerces and reports 100n equal to 100, which is exactly the
       // comparison this codebase must never make by accident.
-      eqeqeq: ["error", "always"],
+      //
+      // `x != null` is exempt: it means "neither null nor undefined" and is the
+      // only loose comparison that cannot coerce a bigint into agreeing with
+      // something it is not. Prisma returns `number | null` and optional
+      // chaining adds `undefined`, so the alternative is a two-clause check at
+      // every read for no extra safety.
+      eqeqeq: ["error", "always", { null: "ignore" }],
       "no-console": ["error", { allow: ["warn", "error", "info"] }],
       "@typescript-eslint/no-unused-vars": [
         "error",

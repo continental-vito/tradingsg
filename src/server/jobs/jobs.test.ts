@@ -190,11 +190,42 @@ describe("snapshotValuations", () => {
   });
 
   it("agrees with the simple return while there are no external flows", async () => {
-    const valuation = await db.portfolioValuation.findFirstOrThrow({
-      where: { portfolioId: alice.portfolio.id, asOfDate: DAY_TWO },
+    // Checked on EVERY valuation, not just the last. The earlier version of
+    // this test only compared the two on a portfolio whose first close happened
+    // to equal its starting capital, so it passed while the TWR chain was
+    // measuring from the first close instead of from the grant — which put the
+    // leaderboard's return column at odds with its value column.
+    const valuations = await db.portfolioValuation.findMany({
+      where: { portfolioId: alice.portfolio.id, kind: "EOD" },
+      orderBy: { asOfDate: "asc" },
     });
-    expect(valuation.netFlowCents).toBe(0n);
+    expect(valuations.length).toBeGreaterThan(1);
+    for (const valuation of valuations) {
+      expect(valuation.netFlowCents).toBe(0n);
+      expect(valuation.twrPpm).toBe(valuation.totalReturnPpm);
+    }
+  });
+
+  it("measures return from the starting capital even when the first close is not flat", async () => {
+    // Bob allocated on DAY_ONE at prices that leave him below par by DAY_TWO.
+    // The chain must start at his €100,000 grant, not at whatever his first
+    // valuation happened to be.
+    const valuation = await db.portfolioValuation.findFirstOrThrow({
+      where: { portfolioId: bob.portfolio.id, asOfDate: DAY_TWO },
+    });
+    const expected = Number(
+      ((valuation.totalValueCents - valuation.initialCapitalCents) * 1_000_000n) /
+        valuation.initialCapitalCents,
+    );
+    // Half-away-from-zero rounding may differ by one ppm from truncation here.
+    expect(Math.abs(valuation.totalReturnPpm - expected)).toBeLessThanOrEqual(1);
     expect(valuation.twrPpm).toBe(valuation.totalReturnPpm);
+    // The first valuation must carry no flow at all.
+    const first = await db.portfolioValuation.findFirstOrThrow({
+      where: { portfolioId: bob.portfolio.id, kind: "EOD" },
+      orderBy: { asOfDate: "asc" },
+    });
+    expect(first.flowInPeriodCents).toBe(0n);
   });
 });
 

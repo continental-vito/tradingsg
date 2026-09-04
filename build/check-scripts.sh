@@ -70,13 +70,22 @@ fi
 #    layer is that swapping a provider touches one file; a stray import
 #    elsewhere silently undoes that without breaking a test.
 for provider in finnhub resend nodemailer; do
-    hits=$(grep -rlniE "\b${provider}\b" \
+    hits=""
+    while read -r file; do
+        # Comment lines are excluded on purpose. What matters is whether code
+        # is coupled to a provider — an import, an identifier, a string. A doc
+        # comment naming one is documentation, and a check that fires on prose
+        # is a check people weaken rather than obey.
+        if grep -vE '^[[:space:]]*(//|\*|/\*)' "${file}" | grep -qiE "\b${provider}\b"; then
+            hits="${hits} ${file}"
+        fi
+    done < <(grep -rlniE "\b${provider}\b" \
         --include='*.ts' --include='*.tsx' \
         --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=src/generated \
         src 2>/dev/null | grep -viE "src/server/(market|email)/(${provider}|index)\.ts$" \
                         | grep -viE "src/lib/env\.ts$" || true)
     if [[ -n "${hits}" ]]; then
-        fail "'${provider}' is named outside its adapter: ${hits}"
+        fail "'${provider}' is named in code outside its adapter:${hits}"
     else
         ok "'${provider}' stays behind its adapter"
     fi

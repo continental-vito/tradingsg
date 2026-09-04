@@ -12,9 +12,14 @@
 import { hash } from "@node-rs/argon2";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "../src/generated/prisma/client";
-import { addDays, dateKeyOf } from "../src/lib/dates";
+import { addDays, dateKeyOf, eachTradingDay } from "../src/lib/dates";
+import { backfillPrices } from "../src/server/jobs/prices";
+import { snapshotLeaderboard } from "../src/server/jobs/leaderboard";
+import { snapshotValuations } from "../src/server/jobs/valuations";
+import { commitRebalance } from "../src/server/portfolio/commit";
 import { DEMO_STOCKS } from "./demo/stocks";
 import { DEMO_PASSWORD, DEMO_PEOPLE } from "./demo/people";
+import { DEMO_STRATEGIES } from "./demo/strategies";
 
 try {
   process.loadEnvFile(".env");
@@ -98,7 +103,15 @@ async function main() {
   // ── Competition ────────────────────────────────────────────────────────────
   const competition = await db.competition.upsert({
     where: { slug: "autumn-2026" },
-    update: {},
+    // Re-running the seed on a later day must move the window with it, or the
+    // stored dates and the freshly computed ones drift apart and the backfill
+    // prices a range the competition does not cover.
+    update: {
+      startsAt: new Date(`${startDate}T08:00:00Z`),
+      endsAt: new Date(`${endDate}T17:30:00Z`),
+      startDate,
+      endDate,
+    },
     create: {
       slug: "autumn-2026",
       name: "Autumn 2026 Stock Challenge",
@@ -219,6 +232,155 @@ async function main() {
   }
 
   console.info(`  ${DEMO_PEOPLE.length} participants (${created} newly funded)`);
+
+  // ── Price history ──────────────────────────────────────────────────────────
+  // Written before anything is allocated, because a rebalance is priced at the
+  // close of the day it happens on and there is nothing to price against
+  // otherwise.
+  const log = (message: string) => console.info(`  ${message}`);
+  const ctx = { db, runKey: "seed", log };
+
+  await backfillPrices(ctx, {
+    from: startDate,
+    to: today,
+    anchorDate: startDate,
+    // The hand-tuned anchors and volatilities from the fixture, so the demo
+    // market has a believable spread rather than eighteen identical walks.
+    profiles: DEMO_STOCKS.map((s) => ({
+      symbol: s.symbol,
+      anchorCents: s.anchorCents,
+      driftBps: s.driftBps,
+      volBps: s.volBps,
+    })),
+  });
+
+  // ── Allocations ────────────────────────────────────────────────────────────
+  const stockIdBySymbol = new Map(stocks.map((s) => [s.symbol, s.id]));
+  const participants = await db.participant.findMany({
+    where: { competitionId: competition.id, isDemo: true },
+    include: { portfolio: { select: { id: true, setupCompletedAt: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+
+  // Allocation dates are picked from the actual trading days, not from raw day
+  // offsets: an offset landing on a weekend — or before the first priced day —
+  // has no close to trade against, and the rebalance is correctly refused.
+  const openDays = eachTradingDay(startDate, today);
+
+  // The last two are left entirely in cash on purpose. The leaderboard has to
+  // show what an unranked entry looks like and the dashboard has to show its
+  // empty state, without anyone having to construct that situation by hand.
+  const uninvestedCount = 2;
+  const investable = participants.slice(0, Math.max(0, participants.length - uninvestedCount));
+
+  let allocated = 0;
+  for (const [index, participant] of investable.entries()) {
+    if (!participant.portfolio || participant.portfolio.setupCompletedAt !== null) continue;
+
+    const strategy = DEMO_STRATEGIES[index % DEMO_STRATEGIES.length];
+    if (!strategy) continue;
+
+    const targets = Object.entries(strategy.weights).flatMap(([symbol, weightPpm]) => {
+      const stockId = stockIdBySymbol.get(symbol);
+      return stockId ? [{ stockId, weightPpm }] : [];
+    });
+
+    // Staggered over the first two trading weeks, so the demo has people who
+    // joined late and a ranking history with actual movement in it.
+    //
+    // The stride is 1, not 2, on purpose. There are 15 strategies, so
+    // participants i and i+15 share one; with a stride of 2 they also shared an
+    // allocation date, which made their portfolios byte-identical and filled
+    // the leaderboard with exact ties that looked fabricated. A stride of 1
+    // shifts them five days apart instead.
+    const allocationDate = openDays[index % Math.min(10, openDays.length)] ?? openDays[0];
+    if (!allocationDate) break;
+    const result = await commitRebalance(db, {
+      portfolioId: participant.portfolio.id,
+      targets,
+      idempotencyKey: `seed:${participant.id}`,
+      periodKey: null,
+      asOfDate: allocationDate,
+      executedAt: new Date(`${allocationDate}T10:00:00Z`),
+    });
+
+    if (!result.ok) {
+      console.error(
+        `  ! ${participant.displayName} (${strategy.label}) was rejected: ` +
+          result.errors.map((e) => e.code).join(", "),
+      );
+      continue;
+    }
+    allocated++;
+  }
+  console.info(
+    `  ${allocated} portfolios allocated across ${DEMO_STRATEGIES.length} strategies, ` +
+      `${uninvestedCount} left uninvested to exercise the unranked path`,
+  );
+
+  // ── Valuations and standings ───────────────────────────────────────────────
+  const tradingDays = eachTradingDay(startDate, today);
+  for (const day of tradingDays) {
+    await snapshotValuations(
+      { ...ctx, log: () => {} },
+      {
+        competitionId: competition.id,
+        asOfDate: day,
+      },
+    );
+  }
+  console.info(`  valued every portfolio across ${tradingDays.length} trading days`);
+
+  let snapshots = 0;
+  for (const day of tradingDays) {
+    await snapshotLeaderboard(
+      { ...ctx, log: () => {} },
+      {
+        competitionId: competition.id,
+        asOfDate: day,
+        kind: "DAILY",
+      },
+    );
+    snapshots++;
+    const isSunday = new Date(`${day}T00:00:00Z`).getUTCDay() === 0;
+    const isLast = day === tradingDays[tradingDays.length - 1];
+    if (isSunday || isLast || new Date(`${day}T00:00:00Z`).getUTCDay() === 5) {
+      await snapshotLeaderboard(
+        { ...ctx, log: () => {} },
+        {
+          competitionId: competition.id,
+          asOfDate: day,
+          kind: "WEEKLY",
+        },
+      );
+      snapshots++;
+    }
+  }
+  console.info(`  ${snapshots} leaderboard snapshots`);
+
+  const finalSnapshot = await db.leaderboardSnapshot.findFirst({
+    where: { competitionId: competition.id, kind: "DAILY" },
+    orderBy: { asOfDate: "desc" },
+    include: {
+      entries: {
+        where: { rank: { not: null } },
+        orderBy: { displayOrder: "asc" },
+        take: 3,
+        include: { participant: { select: { displayName: true } } },
+      },
+    },
+  });
+  if (finalSnapshot) {
+    console.info("");
+    console.info("  Leaderboard:");
+    for (const entry of finalSnapshot.entries) {
+      console.info(
+        `    ${String(entry.rank).padStart(2)}. ${entry.participant.displayName.padEnd(12)} ` +
+          `${(entry.totalReturnPpm / 10_000).toFixed(2).padStart(7)}%`,
+      );
+    }
+  }
+
   console.info("");
   console.info("  Sign in with:");
   console.info(`    admin        ${ADMIN_EMAIL} / ${ADMIN_PASSWORD}`);

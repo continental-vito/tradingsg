@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+/*
+ * The palette is deliberately narrow: one accent, one positive, one negative,
+ * and a neutral ramp. A trading app that colours six things six ways stops
+ * being readable at a glance, and "at a glance" is the whole point of a
+ * leaderboard.
+ *
+ * Positive and negative are not pure red/green. Pure #00ff00 on white fails
+ * contrast and pure red reads as an error rather than as a loss.
+ */
+@theme {
+  --color-ink-50: #f6f7f9;
+  --color-ink-100: #eceef2;
+  --color-ink-200: #d7dbe3;
+  --color-ink-300: #b3bac8;
+  --color-ink-400: #8a93a6;
+  --color-ink-500: #67718696;
+  --color-ink-600: #4d566a;
+  --color-ink-700: #3a4254;
+  --color-ink-800: #232a38;
+  --color-ink-900: #151b26;
+  --color-ink-950: #0c1017;
+
+  --color-accent-50: #eef3ff;
+  --color-accent-100: #dbe5ff;
+  --color-accent-300: #9fb6ff;
+  --color-accent-500: #4c6ef5;
+  --color-accent-600: #3b5bdb;
+  --color-accent-700: #2f49b2;
+
+  --color-up-50: #e8f8f0;
+  --color-up-500: #12a05c;
+  --color-up-600: #0d8449;
+  --color-up-700: #0a6b3b;
+
+  --color-down-50: #fdeeee;
+  --color-down-500: #d63b3b;
+  --color-down-600: #b82f2f;
+  --color-down-700: #962626;
+
+  --color-gold: #d4a129;
+  --color-silver: #9aa4b2;
+  --color-bronze: #b07543;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Every number in a table or a headline is tabular, so digits line up in a
+     column and a value does not jitter as it ticks. */
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --radius-card: 0.875rem;
+}
+
+:root {
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-sunken: var(--color-ink-50);
+  --border: var(--color-ink-200);
+  --text: var(--color-ink-900);
+  --text-muted: var(--color-ink-500);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --surface: var(--color-ink-950);
+    --surface-raised: var(--color-ink-900);
+    --surface-sunken: #080b11;
+    --border: var(--color-ink-800);
+    --text: var(--color-ink-50);
+    --text-muted: var(--color-ink-400);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --surface: var(--color-ink-950);
+  --surface-raised: var(--color-ink-900);
+  --surface-sunken: #080b11;
+  --border: var(--color-ink-800);
+  --text: var(--color-ink-50);
+  --text-muted: var(--color-ink-400);
+  color-scheme: dark;
+}
+
+body {
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Numerals line up in columns and do not jitter as a value ticks. */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}

@@ -1,0 +1,1009 @@
+// TradingSG database schema.
+//
+// Four constraints shape almost every decision in this file.
+//
+// 1. PORTABILITY. It must generate identically on SQLite (local development,
+//    the test suite, `make ci` with no daemon installed) and on PostgreSQL
+//    (anything deployed — Vercel's filesystem is ephemeral and read-only). So
+//    there are no native enums, no `@db.` annotations, and no provider-specific
+//    defaults. `build/db-provider.sh` rewrites the single `provider =` line
+//    below and the adapter import in prisma.config.ts; nothing else changes.
+//
+// 2. MONEY IS NEVER A FLOAT. Every monetary column is `BigInt` holding *cents*;
+//    every share count is `BigInt` holding *micro-shares* (1 share = 1_000_000);
+//    every ratio is `Int` holding *parts per million* (+7.43% is 74_300 ppm).
+//    Prices are BigInt cents too, even though they would fit in an Int — one
+//    numeric type for all money removes a whole class of "which unit is this
+//    column" mistakes, and bigint arithmetic never silently loses precision.
+//    ppm rather than basis points because ranking ties are broken by the metric
+//    itself, and two more decimal places cost nothing but make ties rarer.
+//    src/server/money.ts is the only place these units are converted.
+//
+// 3. DATES HAVE TWO KINDS, NEVER CONFLATED. `...At` columns are `DateTime`, and
+//    are true UTC instants. `tradeDate`, `asOfDate`, `periodStartDate` are
+//    `String` in "YYYY-MM-DD", computed in the competition's timezone. String
+//    dates sort lexicographically, survive DST, and cannot be shifted a day by
+//    a driver's timezone handling — which is exactly the bug that makes a
+//    weekly report cover six days twice a year.
+//
+// 4. THE LEDGER IS IMMUTABLE. `Transaction`, `PriceHistory`, `PortfolioValuation`,
+//    `LeaderboardSnapshot*` and `EmailLog` are append-only; corrections are new
+//    rows, never updates. Everything else carries createdAt/updatedAt, and
+//    admin-editable entities carry `deletedAt` — a stock that hard-deleted
+//    would orphan the transactions that reference it.
+//
+// Enum-like columns are `String` validated by a Zod union at every boundary
+// (src/lib/enums.ts). SQLite has no enum type, and a CHECK constraint that
+// exists on only one of the two providers is worse than none.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ── Identity ──────────────────────────────────────────────────────────────────
+
+model User {
+  id           String  @id @default(cuid())
+  email        String  @unique // always stored lowercased; see normalizeEmail()
+  passwordHash String  // argon2id
+  firstName    String
+  lastName     String
+  department   String?
+  avatarUrl    String?
+
+  role       String  @default("PARTICIPANT") // UserRole: PARTICIPANT | ADMIN
+  isDisabled Boolean @default(false)
+
+  // Demo rows are seeded so the app looks complete on first launch. `make
+  // db-clear-demo` deletes exactly the rows carrying this flag, which is the
+  // only thing that makes the seed safely removable before production.
+  isDemo Boolean @default(false)
+
+  lastLoginAt      DateTime?
+  failedLoginCount Int       @default(0)
+  lockedUntil      DateTime?
+
+  sessions      Session[]
+  resetTokens   PasswordResetToken[]
+  participants  Participant[]
+  notifications Notification[]
+  notifyPrefs   NotificationPreference[]
+  auditLogs     AuditLog[]               @relation("AuditActor")
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([role, isDisabled])
+  @@index([isDemo])
+  @@index([deletedAt])
+}
+
+model Session {
+  id String @id @default(cuid())
+  // The cookie carries 32 random bytes; only their SHA-256 is stored, so a
+  // database dump does not hand over live sessions.
+  tokenHash String @unique
+  userId    String
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expiresAt    DateTime
+  lastSeenAt   DateTime  @default(now())
+  userAgent    String?
+  ipHash       String?
+  revokedAt    DateTime?
+  revokedReason String?  // LOGOUT | PASSWORD_CHANGE | ADMIN_DISABLE
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  consumedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, consumedAt])
+  @@index([expiresAt])
+}
+
+// ── Competition ───────────────────────────────────────────────────────────────
+
+model Competition {
+  id          String  @id @default(cuid())
+  slug        String  @unique
+  name        String
+  description String?
+
+  // CompetitionStatus: DRAFT | REGISTRATION | RUNNING | PAUSED | ENDED
+  status           String  @default("DRAFT")
+  registrationOpen Boolean @default(true)
+
+  currency     String @default("EUR")
+  timezone     String @default("Europe/Berlin")
+  weekStartsOn Int    @default(1) // ISO-8601: 1 = Monday
+
+  startingCapitalCents BigInt @default(10000000) // €100,000.00
+
+  startsAt  DateTime
+  endsAt    DateTime
+  startDate String // "YYYY-MM-DD" in `timezone`
+  endDate   String
+
+  finalizedAt DateTime?
+  isDemo      Boolean   @default(false)
+
+  settings       CompetitionSettings[]
+  tradingWindows TradingWindow[]
+  stocks         CompetitionStock[]
+  participants   Participant[]
+  portfolios     Portfolio[]
+  valuations     PortfolioValuation[]
+  snapshots      LeaderboardSnapshot[]
+  reports        WeeklyReport[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([status, startsAt])
+  @@index([deletedAt])
+}
+
+// Every rule from the brief's §14, because the brief is explicit that they are
+// configurable rather than hard-coded.
+//
+// Revisioned rather than mutated: editing the rules mid-competition writes a new
+// row and stamps `supersededAt` on the old one, so a rebalance committed in
+// week 2 can always be re-validated against the rules that were live in week 2.
+// Without this, tightening the position cap retroactively makes historical
+// portfolios look illegal.
+model CompetitionSettings {
+  id            String      @id @default(cuid())
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  revision      Int       @default(1)
+  effectiveFrom DateTime  @default(now())
+  supersededAt  DateTime?
+
+  // TradingMode: ANYTIME | ONCE_PER_PERIOD | WINDOWS | LOCKED
+  tradingMode         String  @default("ANYTIME")
+  // PeriodUnit: DAY | WEEK | MONTH — the bucket ONCE_PER_PERIOD counts within.
+  periodUnit          String  @default("WEEK")
+  maxChangesPerPeriod Int     @default(1)
+  lockAfterDate       String? // "YYYY-MM-DD"; no trading on or after
+  allowTradingBeforeStart Boolean @default(true)
+
+  // Position constraints, in ppm of total portfolio value.
+  minPositionPpm   Int    @default(0)
+  maxPositionPpm   Int    @default(300000) // 30%
+  minPositionCents BigInt @default(0)
+  minPositions     Int    @default(0)
+  maxPositions     Int?
+
+  allowCash          Boolean @default(true)
+  minCashPpm         Int     @default(0)
+  maxCashPpm         Int     @default(1000000)
+  // With whole shares, "cash must be exactly zero" is arithmetically
+  // impossible. allowCash=false means "at most this much residual".
+  cashToleranceCents BigInt  @default(100)
+
+  allowFractionalShares Boolean @default(true)
+  // Dust guards. Without them a target of 33.33% produces a one-micro-share
+  // trade every single week, each with a fee and a ledger row, forever.
+  minTradeMicroShares   BigInt  @default(1000)
+  minTradeValueCents    BigInt  @default(100)
+
+  // FeeModel: NONE | FLAT | PERCENT | PERCENT_WITH_MIN
+  feeModel     String  @default("NONE")
+  feeFlatCents BigInt  @default(0)
+  feeBps       Int     @default(0)
+  feeMinCents  BigInt  @default(0)
+  feeMaxCents  BigInt?
+
+  // PriceMode: LAST_CLOSE | LIVE — LIVE affects only the participant's own
+  // headline figure and trade execution. Every ranked artefact uses LAST_CLOSE.
+  priceMode             String @default("LAST_CLOSE")
+  maxPriceStalenessDays Int    @default(7)
+  maxQuoteAgeSeconds    Int    @default(900)
+
+  // Stated explicitly so the invariant checker has something to read, and so
+  // turning either on is a deliberate act rather than an emergent bug.
+  allowShort        Boolean @default(false)
+  allowNegativeCash Boolean @default(false)
+
+  weeklyReportEnabled   Boolean @default(true)
+  leaderboardVisibility String  @default("ALL") // ALL | TOP_N | ADMIN_ONLY
+  leaderboardTopN       Int?
+  showOthersHoldings    Boolean @default(false)
+
+  notifyCompetitionStart Boolean @default(true)
+  notifySetupDeadline    Boolean @default(true)
+  notifyWeeklyReport     Boolean @default(true)
+  notifyEnteredTopThree  Boolean @default(true)
+  notifyOvertaken        Boolean @default(false)
+  notifyCompetitionEnd   Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([competitionId, revision])
+  @@index([competitionId, supersededAt])
+}
+
+// Explicit windows when tradingMode = WINDOWS. Rows rather than a cron string
+// because "when does the next window open?" is a question the UI has to answer
+// in plain language, and parsing that back out of a cron expression is worse
+// than storing it.
+model TradingWindow {
+  id            String      @id @default(cuid())
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  label    String
+  opensAt  DateTime
+  closesAt DateTime
+  isActive Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([competitionId, opensAt, closesAt])
+}
+
+// ── Instruments and prices ────────────────────────────────────────────────────
+
+// Global, not per-competition, so that a second season reuses one price history
+// instead of duplicating it. The tradable universe is the join table below.
+model Stock {
+  id             String  @id @default(cuid())
+  symbol         String  @unique // canonical, uppercased
+  providerSymbol String? // when the market-data provider spells it differently
+  name           String
+  exchange       String?
+  currency       String  @default("EUR")
+  sector         String?
+  logoUrl        String?
+  isActive       Boolean @default(true)
+  isDemo         Boolean @default(false)
+
+  // Latest quote cache, written by the price-sync job. Used for the LIVE
+  // headline figure and for trade execution. Never used to value a ranked
+  // artefact — those read PriceHistory, which is immutable.
+  lastPriceCents  BigInt?
+  lastPriceAt     DateTime?
+  lastPriceSource String?
+
+  prices            PriceHistory[]
+  competitions      CompetitionStock[]
+  holdings          Holding[]
+  transactions      Transaction[]
+  holdingValuations HoldingValuation[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([isActive, symbol])
+  @@index([deletedAt])
+}
+
+// The per-competition tradable universe, with optional per-name overrides.
+model CompetitionStock {
+  id            String      @id @default(cuid())
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  stockId       String
+  stock         Stock       @relation(fields: [stockId], references: [id], onDelete: Restrict)
+
+  isTradable   Boolean @default(true)
+  maxWeightPpm Int?    // overrides settings.maxPositionPpm for this name
+  sortOrder    Int     @default(0)
+
+  addedAt   DateTime  @default(now())
+  // Soft removal: existing holdings survive and stay valued, new buys blocked.
+  // Hard-deleting a stock mid-competition would silently zero someone's book.
+  removedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([competitionId, stockId])
+  @@index([competitionId, isTradable, sortOrder])
+}
+
+// One immutable daily bar per stock per trade date.
+model PriceHistory {
+  id      String @id @default(cuid())
+  stockId String
+  stock   Stock  @relation(fields: [stockId], references: [id], onDelete: Cascade)
+
+  tradeDate String // "YYYY-MM-DD"
+
+  closeCents     BigInt
+  openCents      BigInt?
+  highCents      BigInt?
+  lowCents       BigInt?
+  prevCloseCents BigInt?
+  volume         BigInt?
+
+  source      String  @default("mock") // mock | finnhub | manual | carry_forward
+  isSynthetic Boolean @default(false)
+
+  // An admin price correction writes revision+1 and stamps supersededAt on the
+  // old row, so a valuation computed last week stays reproducible against the
+  // revision it actually used.
+  revision     Int       @default(1)
+  supersededAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@unique([stockId, tradeDate, revision])
+  @@index([stockId, tradeDate, supersededAt])
+  @@index([tradeDate])
+}
+
+// ── Participation ─────────────────────────────────────────────────────────────
+
+model Participant {
+  id            String      @id @default(cuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  displayName String // leaderboard alias; may differ from the user's real name
+
+  // Written once, when the participant joins, and never updated. Total return is
+  // currentValue/initialCapital - 1, which is only a truthful number while this
+  // denominator cannot move. Admin corrections write an ADJUSTMENT transaction
+  // and set adjustedByAdmin; they never touch this.
+  initialCapitalCents BigInt
+
+  // ParticipantStatus: INVITED | REGISTERED | ACTIVE | WITHDRAWN | DISQUALIFIED
+  status             String    @default("REGISTERED")
+  adjustedByAdmin    Boolean   @default(false)
+  disqualifiedReason String?
+  joinedAt           DateTime  @default(now())
+  activatedAt        DateTime? // first committed rebalance
+  withdrawnAt        DateTime?
+  isDemo             Boolean   @default(false)
+
+  portfolio       Portfolio?
+  transactions    Transaction[]
+  valuations      PortfolioValuation[]
+  snapshotEntries LeaderboardSnapshotEntry[]
+  reportEntries   WeeklyReportEntry[]
+  emailLogs       EmailLog[]
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([userId, competitionId])
+  @@index([competitionId, status])
+  @@index([deletedAt])
+}
+
+model Portfolio {
+  id            String      @id @default(cuid())
+  participantId String      @unique
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  // PortfolioStatus: DRAFT | ACTIVE | LOCKED
+  status              String @default("DRAFT")
+  initialCapitalCents BigInt
+
+  // Denormalised running state. The Transaction ledger is authoritative; these
+  // are maintained inside the same write transaction and verified against the
+  // ledger by assertPortfolioInvariants() before every commit.
+  cashCents        BigInt
+  costBasisCents   BigInt @default(0)
+  realizedPnlCents BigInt @default(0)
+  totalFeesCents   BigInt @default(0)
+  // External capital added after inception. Normally 0 — it exists so that the
+  // day an admin credits someone, the return maths already knows what to do.
+  netFlowCents     BigInt @default(0)
+
+  transactionSeq   Int       @default(0) // next Transaction.sequence
+  rebalanceCount   Int       @default(0)
+  setupCompletedAt DateTime?
+  lastRebalancedAt DateTime?
+  version          Int       @default(0) // optimistic lock
+
+  holdings          Holding[]
+  transactions      Transaction[]
+  rebalanceRequests RebalanceRequest[]
+  valuations        PortfolioValuation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([competitionId, status])
+}
+
+model Holding {
+  id          String    @id @default(cuid())
+  portfolioId String
+  portfolio   Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  stockId     String
+  stock       Stock     @relation(fields: [stockId], references: [id], onDelete: Restrict)
+
+  microShares BigInt @default(0)
+  // Weighted-average total cost of the CURRENT position, with buy fees
+  // capitalised. Carried as a total rather than a per-share average, which
+  // removes a second rounding site. Invariant: microShares == 0 <=> this == 0.
+  costBasisCents   BigInt @default(0)
+  // Lifetime realised P/L on this name. Survives a full exit, so the weekly
+  // report can still say "your best trade this season" about a closed position.
+  realizedPnlCents BigInt @default(0)
+
+  firstBoughtAt DateTime?
+  lastTradedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([portfolioId, stockId])
+  @@index([stockId])
+}
+
+// A submitted target-allocation change. One row per submission, with the
+// generated orders hanging off it.
+//
+// Two unique constraints carry real weight here:
+//   - idempotencyKey makes a double-click or a retried server action return the
+//     existing result instead of trading twice.
+//   - (portfolioId, periodKey) is what actually enforces "one change per week"
+//     under a concurrent double-submit. The application-level count check only
+//     exists to produce a friendlier message first.
+model RebalanceRequest {
+  id          String    @id @default(cuid())
+  portfolioId String
+  portfolio   Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  // RebalanceStatus: PENDING | COMMITTED | REJECTED | FAILED
+  status         String @default("PENDING")
+  idempotencyKey String @unique
+  periodKey      String? // "2026-W36" / "2026-09-04"; null when trading is unlimited
+
+  // Frozen inputs. The preview the participant confirms and the trade that
+  // executes read the same quotes — the commit never re-quotes.
+  targetsJson String
+  quotesJson  String
+  planJson    String?
+  errorsJson  String?
+
+  preValueCents  BigInt?
+  postValueCents BigInt?
+  totalFeeCents  BigInt @default(0)
+  orderCount     Int    @default(0)
+
+  submittedAt DateTime  @default(now())
+  committedAt DateTime?
+
+  transactions Transaction[]
+
+  createdAt DateTime @default(now())
+
+  @@unique([portfolioId, periodKey])
+  @@index([portfolioId, submittedAt])
+  @@index([status])
+}
+
+// The immutable ledger. Every change to cash or shares is a row here.
+model Transaction {
+  id                 String            @id @default(cuid())
+  portfolioId        String
+  portfolio          Portfolio         @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  participantId      String
+  participant        Participant       @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  stockId            String?
+  stock              Stock?            @relation(fields: [stockId], references: [id], onDelete: Restrict)
+  rebalanceRequestId String?
+  rebalanceRequest   RebalanceRequest? @relation(fields: [rebalanceRequestId], references: [id], onDelete: SetNull)
+
+  // Monotonic per portfolio, starting at 1. The unique constraint plus a count
+  // check is what proves no ledger row was lost.
+  sequence Int
+  // TransactionType: INITIAL_FUNDING | BUY | SELL | FEE | ADJUSTMENT_CREDIT
+  //                | ADJUSTMENT_DEBIT | LIQUIDATION_SELL
+  type     String
+
+  tradeDate  String // "YYYY-MM-DD"
+  executedAt DateTime @default(now())
+
+  // Signed and authoritative: positive on a buy, negative on a sell.
+  microShareDelta BigInt @default(0)
+  priceCents      BigInt @default(0)
+  grossCents      BigInt @default(0)
+  feeCents        BigInt @default(0)
+  // Signed and authoritative: negative when the portfolio spends. Summing this
+  // column over a portfolio must equal cashCents - initialCapital. That is the
+  // ledger half of the reconciliation invariant, and it is exact.
+  cashDeltaCents  BigInt
+
+  costAddedCents   BigInt @default(0) // buys: gross + fee (fees are capitalised)
+  costRemovedCents BigInt @default(0) // sells: pro-rata slice of the cost basis
+  realizedPnlCents BigInt @default(0) // sells: netProceeds - costRemoved
+
+  // Running balances, so the invariant check is O(1) at the tail instead of a
+  // full ledger scan, and so an audit reads straight down the column.
+  cashAfterCents   BigInt
+  microSharesAfter BigInt @default(0)
+
+  // True only for INITIAL_FUNDING and ADJUSTMENT_*. Everything else is an
+  // internal transfer between the cash bucket and the holdings bucket, and must
+  // not break a return sub-period.
+  isExternalFlow Boolean @default(false)
+
+  prevAllocationPpm Int?
+  newAllocationPpm  Int?
+
+  note   String?
+  isDemo Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@unique([portfolioId, sequence])
+  @@index([portfolioId, executedAt])
+  @@index([portfolioId, stockId, sequence])
+  @@index([participantId, tradeDate])
+  @@index([rebalanceRequestId])
+}
+
+// A frozen, reproducible valuation of one portfolio at one point in time. Every
+// chart and every return figure reads these rows; nothing is recomputed from
+// live prices on read, so a chart drawn tomorrow shows the same history it
+// showed today.
+model PortfolioValuation {
+  id            String      @id @default(cuid())
+  portfolioId   String
+  portfolio     Portfolio   @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  participantId String
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  asOfDate String // "YYYY-MM-DD"
+  asOfAt   DateTime
+  // ValuationKind: INCEPTION | EOD | INTRADAY | REBALANCE | FINAL
+  kind     String
+
+  cashCents           BigInt
+  holdingsValueCents  BigInt
+  totalValueCents     BigInt // = cash + holdingsValue
+  initialCapitalCents BigInt
+  netFlowCents        BigInt @default(0)
+  flowInPeriodCents   BigInt @default(0)
+  costBasisCents      BigInt
+  realizedPnlCents    BigInt
+  unrealizedPnlCents  BigInt // = holdingsValue - costBasis
+  cumulativeFeesCents BigInt @default(0)
+
+  totalReturnPpm  Int
+  // Chain-linked time-weighted return. Identical to totalReturnPpm while
+  // netFlowCents is 0, which is the normal case; it exists so that the day an
+  // admin credits a participant, the leaderboard is still correct and nobody
+  // has to remember to switch formulas. A test asserts the two agree at 0 flow.
+  twrPpm          Int
+  dailyReturnPpm  Int?
+  weeklyReturnPpm Int?
+  periodReturnPpm Int?
+
+  positionCount   Int    @default(0)
+  // PriceQuality: OK | PARTIAL | DEGRADED — set when a price had to be carried
+  // forward past the staleness limit, or was missing entirely.
+  priceQuality    String @default("OK")
+  stalePriceCount Int    @default(0)
+  isRankEligible  Boolean @default(true)
+
+  // The chain, rather than date arithmetic: over a weekend Monday's daily
+  // return is measured against Friday, and a market holiday must not silently
+  // become a 0% day.
+  previousValuationId String?
+  previousValuation   PortfolioValuation?  @relation("ValuationChain", fields: [previousValuationId], references: [id], onDelete: SetNull)
+  nextValuations      PortfolioValuation[] @relation("ValuationChain")
+
+  holdingValuations HoldingValuation[]
+  snapshotEntries   LeaderboardSnapshotEntry[]
+
+  computedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@unique([portfolioId, asOfDate, kind])
+  @@index([competitionId, asOfDate, kind])
+  @@index([portfolioId, asOfAt])
+}
+
+// Per-position detail of a valuation. Makes the weekly report's best/worst
+// holding, the donut chart and position attribution a straight read rather than
+// a re-derivation that could disagree with the parent row.
+model HoldingValuation {
+  id          String             @id @default(cuid())
+  valuationId String
+  valuation   PortfolioValuation @relation(fields: [valuationId], references: [id], onDelete: Cascade)
+  stockId     String
+  stock       Stock              @relation(fields: [stockId], references: [id], onDelete: Restrict)
+
+  microShares BigInt
+  priceCents  BigInt
+  // PricePointSource: CLOSE | CARRY_FORWARD | INTRADAY | COST_BASIS
+  priceSource  String
+  priceAgeDays Int    @default(0)
+
+  marketValueCents   BigInt
+  costBasisCents     BigInt
+  unrealizedPnlCents BigInt
+  realizedPnlCents   BigInt @default(0)
+
+  // Largest-remainder allocated, so the weights across positions plus cash sum
+  // to exactly 1_000_000 and the pie chart has no mystery sliver.
+  weightPpm         Int
+  positionReturnPpm Int
+  dayChangePpm      Int?
+
+  createdAt DateTime @default(now())
+
+  @@unique([valuationId, stockId])
+  @@index([stockId])
+}
+
+// ── Leaderboard history ───────────────────────────────────────────────────────
+
+model LeaderboardSnapshot {
+  id            String      @id @default(cuid())
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  asOfDate String
+  asOfAt   DateTime
+  // SnapshotKind: DAILY | WEEKLY | FINAL
+  kind     String
+
+  weekNumber      Int?
+  periodStartDate String?
+
+  participantCount Int
+  rankedCount      Int
+  totalAumCents    BigInt
+  medianReturnPpm  Int
+  bestReturnPpm    Int
+  worstReturnPpm   Int
+  priceQuality     String @default("OK")
+
+  // Resolved by lookup rather than by "yesterday", so a missed day does not
+  // break the rank-change arrow on the next one.
+  previousSnapshotId String?
+  previousSnapshot   LeaderboardSnapshot?  @relation("SnapshotChain", fields: [previousSnapshotId], references: [id], onDelete: SetNull)
+  nextSnapshots      LeaderboardSnapshot[] @relation("SnapshotChain")
+
+  entries           LeaderboardSnapshotEntry[]
+  reports           WeeklyReport[]             @relation("ReportSnapshot")
+  reportsAsPrevious WeeklyReport[]             @relation("ReportPrevSnapshot")
+
+  computedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@unique([competitionId, asOfDate, kind])
+  @@index([competitionId, kind, asOfDate])
+}
+
+model LeaderboardSnapshotEntry {
+  id            String              @id @default(cuid())
+  snapshotId    String
+  snapshot      LeaderboardSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+  participantId String
+  participant   Participant         @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  valuationId   String?
+  valuation     PortfolioValuation? @relation(fields: [valuationId], references: [id], onDelete: SetNull)
+
+  // A participant who has not invested is all cash, so their return is exactly
+  // 0.00%. Ranking them mid-table, ahead of everyone who is down, would reward
+  // not playing. They are listed separately instead.
+  isRanked       Boolean @default(true)
+  // UnrankedReason: NO_PORTFOLIO | NOT_INVESTED | WITHDRAWN | NO_VALUATION
+  unrankedReason String?
+
+  // Competition ranking: 1, 2, 2, 4. Two participants with an identical return
+  // genuinely share a rank; telling one of them they are third because their id
+  // sorts later is indefensible.
+  rank Int?
+  // A strict total order for rendering and for diffing against the previous
+  // snapshot, so a redraw never reshuffles equal rows.
+  displayOrder Int
+  previousRank Int?
+  // Positive means climbed. Null on a first appearance, where "unchanged" and
+  // "no previous position" must not render the same.
+  rankChange  Int?
+  isNewEntry  Boolean @default(false)
+  tieBreakKey String
+
+  totalValueCents  BigInt
+  totalReturnPpm   Int
+  periodReturnPpm  Int?
+  dailyReturnPpm   Int?
+  weeklyReturnPpm  Int?
+  positionCount    Int    @default(0)
+  transactionCount Int    @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@unique([snapshotId, participantId])
+  @@index([snapshotId, displayOrder])
+  @@index([snapshotId, rank])
+  @@index([participantId])
+}
+
+// ── Reporting ─────────────────────────────────────────────────────────────────
+
+model WeeklyReport {
+  id            String      @id @default(cuid())
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  isoWeek     String // "2026-W36"
+  weekNumber  Int
+  revision    Int    @default(1)
+  periodStartDate String
+  periodEndDate   String
+
+  // ReportStatus: DRAFT | READY | SCHEDULED | SENDING | SENT | PARTIALLY_SENT | FAILED
+  status String @default("DRAFT")
+
+  // Read, never computed here. A report that invents its own numbers is a
+  // report that can disagree with the leaderboard it claims to describe.
+  snapshotId         String
+  snapshot           LeaderboardSnapshot  @relation("ReportSnapshot", fields: [snapshotId], references: [id], onDelete: Restrict)
+  previousSnapshotId String?
+  previousSnapshot   LeaderboardSnapshot? @relation("ReportPrevSnapshot", fields: [previousSnapshotId], references: [id], onDelete: SetNull)
+
+  subject         String
+  introMessage    String?
+  templateKey     String  @default("weekly-v1")
+  templateVersion Int     @default(1)
+  showLeaderboard Boolean @default(true)
+  showIndividual  Boolean @default(true)
+  leaderboardSize Int     @default(10)
+
+  // The rendered common sections and the frozen competition-level facts.
+  // Preview, test send and real send all read these, so the report cannot say
+  // one thing on screen and another in the inbox because prices moved between.
+  sharedHtml  String
+  summaryJson String
+
+  recipientCount Int @default(0)
+  sentCount      Int @default(0)
+  failedCount    Int @default(0)
+
+  scheduledFor  DateTime?
+  builtAt       DateTime  @default(now())
+  sendStartedAt DateTime?
+  sentAt        DateTime?
+  isDemo        Boolean   @default(false)
+
+  entries   WeeklyReportEntry[]
+  emailLogs EmailLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([competitionId, isoWeek, revision])
+  @@index([competitionId, status])
+  @@index([status, scheduledFor])
+}
+
+model WeeklyReportEntry {
+  id            String       @id @default(cuid())
+  reportId      String
+  report        WeeklyReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  participantId String
+  participant   Participant  @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  rank         Int?
+  previousRank Int?
+  rankChange   Int?
+  isRanked     Boolean @default(true)
+
+  totalValueCents BigInt
+  weeklyPnlCents  BigInt @default(0)
+  totalPnlCents   BigInt @default(0)
+  weeklyReturnPpm Int    @default(0)
+  totalReturnPpm  Int    @default(0)
+  positionCount   Int    @default(0)
+  tradesThisWeek  Int    @default(0)
+
+  // Best and worst are ranked by euro *contribution*, not by percentage move.
+  // A 40% pop on a 1% position is not anyone's best holding: it moved the
+  // needle €400 while the 30% position that fell 5% cost €1,500.
+  bestStockId            String?
+  bestSymbol             String?
+  bestContributionCents  BigInt?
+  bestReturnPpm          Int?
+  worstStockId           String?
+  worstSymbol            String?
+  worstContributionCents BigInt?
+  worstReturnPpm         Int?
+
+  // The complete personalised email, rendered at build time. Preview, test send
+  // and real send read this one column, which is what makes drift structurally
+  // impossible rather than merely unlikely.
+  payloadJson     String
+  renderedSubject String
+  renderedHtml    String
+  renderedText    String?
+  contentHash     String
+
+  // EntrySendStatus: PENDING | SKIPPED | SENT | FAILED
+  sendStatus String    @default("PENDING")
+  skipReason String?
+  sentAt     DateTime?
+  emailLogId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([reportId, participantId])
+  @@index([reportId, sendStatus])
+  @@index([reportId, rank])
+}
+
+model EmailLog {
+  id String @id @default(cuid())
+  // "weekly:<reportId>:<revision>:<participantId>". Unique, so a re-run after a
+  // partial failure cannot double-send even if sendStatus was left inconsistent
+  // by a crash.
+  dedupeKey String @unique
+
+  reportId String?
+  report   WeeklyReport? @relation(fields: [reportId], references: [id], onDelete: SetNull)
+  participantId String?
+  participant   Participant? @relation(fields: [participantId], references: [id], onDelete: SetNull)
+
+  // EmailProviderKind: console | smtp | resend
+  provider String
+  // EmailKind: WEEKLY_REPORT | PASSWORD_RESET | WELCOME | ADMIN_ALERT | TEST
+  kind     String
+  toEmail  String
+  toName   String?
+  fromEmail String
+  subject  String
+  bodyHash String
+  htmlPath String? // where the console provider wrote it
+
+  // EmailStatus: QUEUED | SENDING | SENT | FAILED | SKIPPED
+  status            String  @default("QUEUED")
+  attempts          Int     @default(0)
+  providerMessageId String?
+  error             String?
+  isTest            Boolean @default(false)
+
+  // The row is written before the send is attempted. A crash between the two
+  // loses one email; the other order sends it twice. Losing one is the better
+  // failure — the report is still on the site and the next run re-notifies.
+  queuedAt DateTime  @default(now())
+  sentAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, queuedAt])
+  @@index([reportId])
+  @@index([toEmail, createdAt])
+}
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+
+model Notification {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // NotificationType: COMPETITION_START | SETUP_DEADLINE | WEEKLY_REPORT
+  //                 | ENTERED_TOP_THREE | OVERTAKEN | COMPETITION_END
+  //                 | TRADE_EXECUTED | ADMIN_MESSAGE
+  type     String
+  severity String  @default("INFO") // INFO | SUCCESS | WARNING | ERROR
+  title    String
+  body     String
+  linkUrl  String?
+  dataJson String?
+
+  // Without this an hourly job tells someone they reached the top three once an
+  // hour for a week.
+  dedupeKey String @unique
+
+  readAt      DateTime?
+  dismissedAt DateTime?
+  expiresAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, readAt, createdAt])
+  @@index([expiresAt])
+}
+
+model NotificationPreference {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type    String // a NotificationType, or "*" for the global default
+  channel String // EMAIL | IN_APP
+  enabled Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, type, channel])
+  @@index([userId])
+}
+
+// ── Operations ────────────────────────────────────────────────────────────────
+
+// Job execution lock and history. The unique key is the lock: a second concurrent
+// run of the same job for the same key fails its INSERT and reports SKIPPED,
+// rather than both processes valuing every portfolio at once.
+model JobRun {
+  id      String @id @default(cuid())
+  jobName String
+  runKey  String // "2026-09-04" | "2026-W36" | "manual:<uuid>"
+
+  // JobStatus: RUNNING | SUCCEEDED | FAILED | SKIPPED
+  status      String @default("RUNNING")
+  triggeredBy String @default("CRON") // CRON | CLI | HTTP | CATCHUP
+
+  startedAt   DateTime  @default(now())
+  heartbeatAt DateTime  @default(now())
+  finishedAt  DateTime?
+  durationMs  Int?
+
+  itemsProcessed Int     @default(0)
+  itemsFailed    Int     @default(0)
+  resultJson     String?
+  error          String?
+  hostname       String?
+  attempt        Int     @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([jobName, runKey])
+  @@index([jobName, startedAt])
+  @@index([status, heartbeatAt])
+}
+
+model AuditLog {
+  id          String  @id @default(cuid())
+  actorUserId String?
+  actor       User?   @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorRole   String?
+
+  action     String // "competition.settings.update", "participant.disqualify"
+  entityType String
+  entityId   String
+  beforeJson String?
+  afterJson  String?
+  ipHash     String?
+  userAgent  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([createdAt])
+}

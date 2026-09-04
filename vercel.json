@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    { "path": "/api/cron/refresh-prices", "schedule": "*/15 8-22 * * 1-5" },
+    { "path": "/api/cron/close-prices", "schedule": "30 22 * * 1-5" },
+    { "path": "/api/cron/snapshot-valuations", "schedule": "0 23 * * *" },
+    { "path": "/api/cron/snapshot-leaderboard", "schedule": "15 23 * * *" },
+    { "path": "/api/cron/build-weekly-report", "schedule": "0 6 * * 1" },
+    { "path": "/api/cron/send-scheduled-reports", "schedule": "*/10 * * * *" },
+    { "path": "/api/cron/run-notifications", "schedule": "0 * * * *" }
+  ]
+}

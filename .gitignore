@@ -1,0 +1,39 @@
+# Build output.
+/.next/
+/out/
+/dist/
+next-env.d.ts
+
+# The Prisma client is generated from schema.prisma. Committing it means a
+# schema change and a stale client can disagree in a diff nobody reads.
+/src/generated/
+
+# Dependencies.
+/node_modules/
+
+# Every credential is an environment variable. .env.example is the committed
+# template; .env is the local copy with real values in it.
+.env
+.env.*
+!.env.example
+
+# The schema lives in prisma/migrations, not in a committed database file.
+# -wal and -journal are WAL sidecars and are worthless without the file itself.
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+
+# Rendered emails written by the console email provider, for local review.
+/.mail/
+
+# Test and tooling artefacts.
+/coverage/
+*.tsbuildinfo
+
+# macOS and editors. An IDE project file is never committed — it encodes one
+# person's absolute paths.
+.DS_Store
+.idea/
+.vscode/

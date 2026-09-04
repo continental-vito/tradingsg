@@ -1,0 +1,31 @@
+#!/bin/sh
+# Refuses a push that would not pass `make ci`.
+#
+# CI is the source of truth for whether something compiles. Never bypass this
+# with --no-verify to "fix it in the next commit": a red dev branch costs the
+# next session an hour of working out whose breakage it is.
+set -e
+
+# Hooks inherit the caller's PATH, which for a GUI git client — or any process
+# that did not start from an interactive shell — does not include Homebrew's
+# bin. Without this the push fails with "npm: not found", which reads like a
+# broken hook rather than a missing PATH entry.
+if ! command -v npm >/dev/null 2>&1; then
+    for candidate in /opt/homebrew/bin /usr/local/bin; do
+        [ -x "$candidate/npm" ] && PATH="$candidate:$PATH" && export PATH && break
+    done
+fi
+
+if ! command -v npm >/dev/null 2>&1; then
+    echo "pre-push: npm is not on PATH." >&2
+    echo "pre-push: install Node (https://nodejs.org) — this repo's CI cannot run without it." >&2
+    exit 1
+fi
+
+echo "pre-push: running make ci"
+if ! make ci; then
+    echo "" >&2
+    echo "✗ Push aborted — CI is red." >&2
+    echo "  Push anyway (you had better mean it): git push --no-verify" >&2
+    exit 1
+fi

@@ -1,0 +1,66 @@
+# The same stages as `make ci`, on a Linux runner.
+#
+# This repository is public, so GitHub Actions minutes are free and there is no
+# 10x macOS multiplier to avoid. The local `make ci` is still the gate that
+# matters — the pre-push hook runs it, and it answers in seconds — this exists
+# to catch the "works on my machine" class of failure.
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    env:
+      # A throwaway file database. The suite creates and drops its own, but
+      # prisma generate and next build both need the variable to be set at all.
+      DATABASE_URL: "file:./ci.db"
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      # Deliberately not `make ci`: the build stage is the slowest, and running
+      # the cheap stages as separate steps means the Actions UI names which one
+      # failed without anyone opening the log.
+      - name: Format
+        run: npm run fmt:check
+
+      - name: Lint
+        run: npx eslint . --max-warnings 0
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm run test
+
+      - name: Repository invariants
+        run: bash build/check-scripts.sh
+
+      - name: Build
+        run: npm run build
+
+      - name: Seed runs cleanly
+        run: npm run db:seed

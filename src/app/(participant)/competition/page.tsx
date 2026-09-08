@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { joinCompetitionAction } from "@/app/actions/join";
+import { JoinPrompt } from "@/components/join-prompt";
+import { loadJoinable } from "@/server/dto/participation";
 import { Card } from "@/components/ui";
 import { toneClass } from "@/components/stat";
 import { daysBetween, formatRemaining } from "@/lib/dates";
@@ -19,7 +21,10 @@ export default async function CompetitionPage() {
     orderBy: { joinedAt: "desc" },
     include: { competition: true },
   });
-  if (!participant) notFound();
+  if (!participant) {
+    const joinable = await loadJoinable();
+    return <JoinPrompt {...joinable} join={joinCompetitionAction} />;
+  }
 
   const competition = participant.competition;
 

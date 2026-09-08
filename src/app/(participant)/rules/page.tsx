@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { joinCompetitionAction } from "@/app/actions/join";
+import { JoinPrompt } from "@/components/join-prompt";
+import { loadJoinable } from "@/server/dto/participation";
 import { Card } from "@/components/ui";
 import { requireUser } from "@/server/auth/guard";
 import { db } from "@/server/db";
@@ -42,7 +44,10 @@ export default async function RulesPage() {
       },
     },
   });
-  if (!participant) notFound();
+  if (!participant) {
+    const joinable = await loadJoinable();
+    return <JoinPrompt {...joinable} join={joinCompetitionAction} />;
+  }
 
   const competition = participant.competition;
   const s = competition.settings[0];

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { joinCompetitionAction } from "@/app/actions/join";
+import { JoinPrompt } from "@/components/join-prompt";
+import { loadJoinable } from "@/server/dto/participation";
 import { AllocationDonut } from "@/components/charts/allocation-donut";
 import { CASH_COLOR, topNWithOther } from "@/components/charts/palette";
 import { Card, EmptyState } from "@/components/ui";
@@ -14,7 +16,10 @@ export const dynamic = "force-dynamic";
 export default async function PortfolioPage() {
   const user = await requireUser();
   const data = await loadDashboard(user.id);
-  if (!data) notFound();
+  if (!data) {
+    const joinable = await loadJoinable();
+    return <JoinPrompt {...joinable} join={joinCompetitionAction} />;
+  }
 
   const { holdings, headline } = data;
 

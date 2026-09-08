@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { joinCompetitionAction } from "@/app/actions/join";
+import { JoinPrompt } from "@/components/join-prompt";
+import { loadJoinable } from "@/server/dto/participation";
 import { Card, EmptyState } from "@/components/ui";
 import { toneClass } from "@/components/stat";
 import { requireUser } from "@/server/auth/guard";
@@ -28,7 +30,10 @@ export default async function HistoryPage() {
     orderBy: { joinedAt: "desc" },
     include: { competition: { select: { currency: true } } },
   });
-  if (!participant) notFound();
+  if (!participant) {
+    const joinable = await loadJoinable();
+    return <JoinPrompt {...joinable} join={joinCompetitionAction} />;
+  }
 
   const transactions = await db.transaction.findMany({
     where: { participantId: participant.id },

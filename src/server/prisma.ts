@@ -20,6 +20,21 @@ import { PrismaClient } from "@/generated/prisma/client";
  * "cascade" into "orphan".
  */
 export function createPrismaClient(url = process.env.DATABASE_URL): PrismaClient {
+  // Loaded here as well as in src/lib/env.ts, because a plain-Node script that
+  // imports only this module gets no .env otherwise. The job CLI works today
+  // only because it happens to pull env.ts in transitively, and relying on an
+  // import graph for that is the kind of thing that breaks the next script
+  // somebody writes.
+  if (!url && !process.env.DATABASE_URL) {
+    try {
+      process.loadEnvFile(".env");
+    } catch {
+      // Absent is fine — CI and Vercel set the variable directly, and the
+      // error below names it either way.
+    }
+    url = process.env.DATABASE_URL;
+  }
+
   if (!url) {
     throw new Error(
       "DATABASE_URL is not set. Copy .env.example to .env — nothing can open a database without it.",

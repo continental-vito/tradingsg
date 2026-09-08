@@ -96,6 +96,22 @@ export default async function LeaderboardPage({
         </div>
       </div>
 
+      {/* Someone who joined since the last snapshot is in the competition but
+          not on this board yet. Saying so beats leaving them to wonder whether
+          they are missing or the app is broken. */}
+      {data.youJoinedAfterSnapshot ? (
+        <Card className="border-accent-500/40 bg-accent-50/40">
+          <p className="text-sm">
+            <strong>You joined after these standings were taken.</strong>{" "}
+            <span className="text-[var(--text-muted)]">
+              The leaderboard is written once a day after the close, so you will appear on it in the
+              next one. Build your portfolio in the meantime and you will arrive ranked rather than
+              waiting.
+            </span>
+          </p>
+        </Card>
+      ) : null}
+
       {/* The participant's own position, called out whether they are 2nd or
           22nd — scrolling to find yourself is the single most common thing
           anyone does on a leaderboard. */}

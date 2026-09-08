@@ -9,6 +9,7 @@ import { formatCents } from "@/server/money";
 import { burnPasswordTime, hashPassword, verifyPassword } from "@/server/auth/password";
 import { createSession, destroySession, revokeAllSessions } from "@/server/auth/session";
 import { sendPasswordResetEmail, sendWelcomeEmail } from "@/server/email/transactional";
+import { enrolInCompetition } from "@/server/portfolio/enrol";
 
 export interface FormState {
   error?: string;
@@ -83,8 +84,15 @@ export async function registerAction(_prev: FormState, formData: FormData): Prom
     select: { id: true },
   });
 
-  // Best effort: a welcome email that fails must not stop someone joining the
-  // competition they just signed up for.
+  // Signing up IS joining. Creating an account without a participant row left
+  // people with a working login and a 404 on the page onboarding sent them to
+  // next, which is the worst possible first impression.
+  //
+  // A failure here is not fatal — the account exists and the dashboard explains
+  // what happened with a button to retry — so registration is never blocked by
+  // a competition being closed.
+  await enrolInCompetition(db, { userId: user.id });
+
   const competition = await db.competition.findFirst({
     where: { deletedAt: null, status: { in: ["REGISTRATION", "RUNNING"] } },
     orderBy: { startsAt: "desc" },

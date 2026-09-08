@@ -29,6 +29,12 @@ export interface LeaderboardDto {
   participantCount: number;
   rows: LeaderboardRow[];
   you: LeaderboardRow | null;
+  /**
+   * True when the caller is in the competition but not in this snapshot —
+   * they joined after it was taken. Without this the leaderboard simply omits
+   * them, and a new joiner cannot tell whether they are missing or broken.
+   */
+  youJoinedAfterSnapshot: boolean;
   stats: { median: RatioDto; best: RatioDto; worst: RatioDto; aum: MoneyDto } | null;
 }
 
@@ -76,6 +82,7 @@ export async function loadLeaderboard(
       participantCount: 0,
       rows: [],
       you: null,
+      youJoinedAfterSnapshot: false,
       stats: null,
     };
   }
@@ -145,6 +152,7 @@ export async function loadLeaderboard(
     participantCount: snapshot.participantCount,
     rows,
     you: rows.find((r) => r.isYou) ?? null,
+    youJoinedAfterSnapshot: !rows.some((r) => r.isYou),
     stats: {
       median: ratio(snapshot.medianReturnPpm),
       best: ratio(snapshot.bestReturnPpm),

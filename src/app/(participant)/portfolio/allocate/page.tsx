@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { joinCompetitionAction } from "@/app/actions/join";
+import { JoinPrompt } from "@/components/join-prompt";
+import { loadJoinable } from "@/server/dto/participation";
 import { previewRebalanceAction, submitRebalanceAction } from "@/app/actions/portfolio";
 import { AllocationEditor, type AllocatableStock } from "@/components/allocation-editor";
 import { Alert } from "@/components/ui";
@@ -28,7 +30,12 @@ export default async function AllocatePage() {
       portfolio: { include: { holdings: true } },
     },
   });
-  if (!participant?.portfolio) notFound();
+  // Not a 404. The page exists — this person simply has no participation yet,
+  // which used to be every newly registered user and is still any admin.
+  if (!participant?.portfolio) {
+    const joinable = await loadJoinable();
+    return <JoinPrompt {...joinable} join={joinCompetitionAction} />;
+  }
 
   const { competition, portfolio } = participant;
   const settings = competition.settings[0];

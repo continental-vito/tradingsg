@@ -7,6 +7,16 @@ import { z } from "zod";
  * deep as `undefined` concatenated into a URL. The error message names the file
  * to fix, because that is the next action.
  */
+/**
+ * The valid provider names, exported so the UI can list them without any page
+ * hard-coding a provider's name. build/check-scripts.sh fails CI if one appears
+ * outside its own adapter, and that check cannot tell a helpful sentence from a
+ * real dependency — which is the right side to err on. One source of truth is
+ * the better answer than an exception.
+ */
+export const EMAIL_PROVIDERS = ["console", "smtp", "resend"] as const;
+export const MARKET_DATA_PROVIDERS = ["mock", "finnhub"] as const;
+
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_URL: z.string().min(1),
@@ -14,7 +24,7 @@ const schema = z.object({
   APP_URL: z.string().url().default("http://localhost:3000"),
   COMPANY_NAME: z.string().default("Acme Corp"),
 
-  MARKET_DATA_PROVIDER: z.enum(["mock", "finnhub"]).default("mock"),
+  MARKET_DATA_PROVIDER: z.enum(MARKET_DATA_PROVIDERS).default("mock"),
   FINNHUB_API_KEY: z.string().optional(),
   /**
    * Seeds the synthetic price generator, so a reseed reproduces the same market.
@@ -26,7 +36,7 @@ const schema = z.object({
    */
   MOCK_MARKET_SEED: z.coerce.number().int().default(42),
 
-  EMAIL_PROVIDER: z.enum(["console", "smtp", "resend"]).default("console"),
+  EMAIL_PROVIDER: z.enum(EMAIL_PROVIDERS).default("console"),
   EMAIL_FROM: z.string().default("TradingSG <no-reply@example.com>"),
   EMAIL_OUTBOX_DIR: z.string().default(".mail"),
   SMTP_HOST: z.string().optional(),

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { adjustPortfolioAction } from "@/app/actions/admin";
+import { AdjustPortfolioForm } from "@/components/admin-controls";
 import { Card, EmptyState } from "@/components/ui";
 import { toneClass } from "@/components/stat";
 import { requireAdmin } from "@/server/auth/guard";
@@ -168,6 +170,15 @@ export default async function AdminParticipantPage({
                 </table>
               </div>
             )}
+          </Card>
+
+          <Card>
+            <h2 className="mb-1 text-sm font-medium">Manual adjustment</h2>
+            <AdjustPortfolioForm
+              portfolioId={participant.portfolio.id}
+              cashText={formatCents(participant.portfolio.cashCents, currency)}
+              adjust={adjustPortfolioAction}
+            />
           </Card>
 
           <Card className="overflow-hidden p-0">

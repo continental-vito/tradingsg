@@ -1,5 +1,6 @@
 import { AppNav } from "@/components/app-nav";
 import { requireUser } from "@/server/auth/guard";
+import { db } from "@/server/db";
 
 /**
  * The layout guard is a convenience, not the security boundary: a server action
@@ -7,10 +8,14 @@ import { requireUser } from "@/server/auth/guard";
  */
 export default async function ParticipantLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
+  const unreadCount = await db.notification.count({
+    where: { userId: user.id, readAt: null },
+  });
   return (
     <div className="flex min-h-dvh flex-col">
       <AppNav
         user={user}
+        unreadCount={unreadCount}
         links={[
           { href: "/dashboard", label: "Dashboard" },
           { href: "/portfolio", label: "Portfolio" },

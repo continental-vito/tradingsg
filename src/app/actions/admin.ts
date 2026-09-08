@@ -5,6 +5,8 @@ import { z } from "zod";
 import { requireAdmin } from "@/server/auth/guard";
 import { revokeAllSessions } from "@/server/auth/session";
 import { db } from "@/server/db";
+import { formatCents } from "@/server/money";
+import { applyAdjustment } from "@/server/portfolio/adjust";
 
 /**
  * Administrative mutations.
@@ -303,5 +305,57 @@ export async function removeStockAction(
       holders > 0
         ? `Removed from the tradable list. ${holders} participant${holders === 1 ? "" : "s"} still hold it — their positions stay valued and can be sold, but nobody can buy more.`
         : "Removed from the tradable list.",
+  };
+}
+
+const adjustSchema = z.object({
+  portfolioId: z.string().min(1),
+  amountCents: z.coerce.bigint(),
+  reason: z.string().trim().min(3, "Say why. This is written into the audit trail."),
+});
+
+/**
+ * Wraps applyAdjustment with the authorisation and the audit entry. The ledger
+ * work itself lives in src/server/portfolio/adjust.ts so it can be tested.
+ */
+export async function adjustPortfolioAction(
+  input: z.input<typeof adjustSchema>,
+): Promise<ActionResult> {
+  const admin = await requireAdmin();
+  const parsed = adjustSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "That adjustment is not valid." };
+  }
+
+  const portfolio = await db.portfolio.findUnique({
+    where: { id: parsed.data.portfolioId },
+    include: { participant: { select: { id: true, displayName: true } } },
+  });
+  if (!portfolio) return { ok: false, error: "That portfolio no longer exists." };
+
+  const before = portfolio.cashCents;
+  const result = await applyAdjustment(db, {
+    portfolioId: parsed.data.portfolioId,
+    amountCents: parsed.data.amountCents,
+    reason: parsed.data.reason,
+    tradeDate: new Date().toISOString().slice(0, 10),
+  });
+
+  if (!result.ok) return { ok: false, error: result.error };
+
+  await audit(
+    admin.id,
+    "portfolio.adjust",
+    "Portfolio",
+    parsed.data.portfolioId,
+    { cashCents: before.toString() },
+    { amountCents: parsed.data.amountCents.toString(), reason: parsed.data.reason },
+  );
+
+  revalidatePath(`/admin/participants/${portfolio.participantId}`);
+  revalidatePath("/leaderboard");
+  return {
+    ok: true,
+    message: `${formatCents(parsed.data.amountCents)} recorded for ${portfolio.participant.displayName}. Their portfolio is now flagged, and the adjustment is excluded from their return.`,
   };
 }

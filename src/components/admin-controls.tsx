@@ -367,3 +367,75 @@ export function CompetitionSettingsForm({
     </div>
   );
 }
+
+export function AdjustPortfolioForm({
+  portfolioId,
+  cashText,
+  adjust,
+}: {
+  portfolioId: string;
+  cashText: string;
+  adjust: (input: {
+    portfolioId: string;
+    amountCents: string;
+    reason: string;
+  }) => Promise<ActionResult>;
+}) {
+  const { pending, result, run } = useAction();
+  const [amount, setAmount] = useState("");
+  const [reason, setReason] = useState("");
+
+  return (
+    <div>
+      <p className="mb-3 text-sm text-[var(--text-muted)]">
+        Adjusts cash only. Starting capital is never edited — total return is measured against it,
+        and an administrator who could change that denominator could hand someone a rank. The
+        adjustment is written to the ledger as an external flow, so it is excluded from the
+        participant&rsquo;s return rather than counted as performance, and their portfolio is
+        flagged. Currently holding {cashText}.
+      </p>
+      <form
+        className="grid gap-3 sm:grid-cols-[160px_1fr_auto] sm:items-end"
+        onSubmit={(e) => {
+          e.preventDefault();
+          run(async () => {
+            const r = await adjust({
+              portfolioId,
+              amountCents: String(Math.round(Number(amount) * 100)),
+              reason,
+            });
+            if (r.ok) {
+              setAmount("");
+              setReason("");
+            }
+            return r;
+          });
+        }}
+      >
+        <Field label="Amount" hint="Negative to debit.">
+          <Input
+            type="number"
+            step="0.01"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="-250.00"
+            required
+          />
+        </Field>
+        <Field label="Reason" hint="Written into the audit trail.">
+          <Input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Correcting a duplicated fee"
+            required
+            minLength={3}
+          />
+        </Field>
+        <Button type="submit" variant="danger" disabled={pending || !amount || reason.length < 3}>
+          {pending ? "Recording…" : "Record adjustment"}
+        </Button>
+      </form>
+      <Feedback result={result} />
+    </div>
+  );
+}

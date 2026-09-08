@@ -3,6 +3,7 @@ import { addDays, dateKeyOf, eachTradingDay, isoWeekOf, type DateKey } from "@/l
 import { backfillPrices, missingTradingDays, refreshQuoteCache } from "./prices";
 import { snapshotLeaderboard } from "./leaderboard";
 import { snapshotValuations } from "./valuations";
+import { runNotifications } from "./notifications";
 import { buildWeeklyReport } from "@/server/reports/generate";
 import { sendWeeklyReport } from "@/server/reports/send";
 import { runJob, type JobOutcome } from "./run";
@@ -307,6 +308,36 @@ export const JOBS: JobDefinition[] = [
               );
               return { itemsProcessed: outcome.sent, itemsFailed: outcome.failed };
             },
+          ),
+        );
+      }
+      return outcomes;
+    },
+  },
+
+  {
+    name: "run-notifications",
+    description: "Create the notifications that should exist right now.",
+    cron: "0 * * * *",
+    runKeyFor: (now) => `tick:${Math.floor(now.getTime() / 3_600_000)}`,
+    run: async (db, args) => {
+      const now = args.now ?? new Date();
+      const outcomes: JobOutcome[] = [];
+      for (const competition of await activeCompetitions(db, args.competitionSlug)) {
+        outcomes.push(
+          await runJob(
+            db,
+            {
+              jobName: "run-notifications",
+              runKey: `${competition.slug}:${Math.floor(now.getTime() / 3_600_000)}`,
+              triggeredBy: args.triggeredBy,
+              force: args.force,
+            },
+            (ctx) =>
+              runNotifications(ctx, {
+                competitionId: competition.id,
+                asOfDate: dateKeyOf(now, competition.timezone),
+              }),
           ),
         );
       }

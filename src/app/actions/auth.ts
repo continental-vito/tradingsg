@@ -5,8 +5,10 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/server/db";
+import { formatCents } from "@/server/money";
 import { burnPasswordTime, hashPassword, verifyPassword } from "@/server/auth/password";
 import { createSession, destroySession, revokeAllSessions } from "@/server/auth/session";
+import { sendPasswordResetEmail, sendWelcomeEmail } from "@/server/email/transactional";
 
 export interface FormState {
   error?: string;
@@ -79,6 +81,23 @@ export async function registerAction(_prev: FormState, formData: FormData): Prom
       role: "PARTICIPANT",
     },
     select: { id: true },
+  });
+
+  // Best effort: a welcome email that fails must not stop someone joining the
+  // competition they just signed up for.
+  const competition = await db.competition.findFirst({
+    where: { deletedAt: null, status: { in: ["REGISTRATION", "RUNNING"] } },
+    orderBy: { startsAt: "desc" },
+    select: { startingCapitalCents: true, currency: true },
+  });
+  await sendWelcomeEmail({
+    to: email,
+    firstName: parsed.data.firstName,
+    userId: user.id,
+    startingCapital: formatCents(
+      competition?.startingCapitalCents ?? 10_000_000n,
+      competition?.currency ?? "EUR",
+    ),
   });
 
   await createSession(user.id, await requestMeta());
@@ -177,12 +196,12 @@ export async function requestPasswordResetAction(
 
   const user = await db.user.findUnique({
     where: { email },
-    select: { id: true, deletedAt: true },
+    select: { id: true, firstName: true, deletedAt: true },
   });
   if (!user || user.deletedAt !== null) return answer;
 
   const token = randomBytes(32).toString("base64url");
-  await db.passwordResetToken.create({
+  const record = await db.passwordResetToken.create({
     data: {
       userId: user.id,
       tokenHash: hashToken(token),
@@ -190,9 +209,16 @@ export async function requestPasswordResetAction(
     },
   });
 
-  // Phase 6 hands this to the email provider. Until then the link is written to
-  // the server log rather than silently dropped, so the flow is testable.
-  console.info(`[password-reset] /reset-password/${token}`);
+  // Awaited, but its failures are swallowed inside: this action must answer
+  // identically whether or not the address exists, and letting a send error
+  // surface here would turn the reset form into an account oracle.
+  await sendPasswordResetEmail({
+    to: email,
+    firstName: user.firstName,
+    token,
+    tokenId: record.id,
+  });
+
   return answer;
 }
 

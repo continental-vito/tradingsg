@@ -86,9 +86,17 @@ async function main() {
     stocks.push(
       await db.stock.upsert({
         where: { symbol: s.symbol },
-        update: { name: s.name, sector: s.sector, isDemo: true },
+        update: {
+          name: s.name,
+          sector: s.sector,
+          // Refreshed on every seed, so correcting a ticker in the fixture is
+          // picked up without a migration or a hand edit.
+          providerSymbol: s.providerSymbol,
+          isDemo: true,
+        },
         create: {
           symbol: s.symbol,
+          providerSymbol: s.providerSymbol,
           name: s.name,
           exchange: s.exchange,
           currency: s.currency,

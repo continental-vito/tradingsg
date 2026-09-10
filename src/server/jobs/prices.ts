@@ -63,7 +63,7 @@ export async function backfillPrices(
 
   const stocks = await db.stock.findMany({
     where: { deletedAt: null },
-    select: { id: true, symbol: true },
+    select: { id: true, symbol: true, providerSymbol: true },
   });
   if (stocks.length === 0) {
     log("No stocks exist yet — nothing to price.");
@@ -71,7 +71,12 @@ export async function backfillPrices(
   }
 
   const profiles = args.profiles ?? (await deriveMockProfiles(db));
-  const provider = createMarketDataProvider(profiles, anchorDate);
+  // Our ticker to the listing to fetch. A stock with no providerSymbol is
+  // fetched under its own name, which is right for the ones that match.
+  const symbolMap = new Map(
+    stocks.flatMap((s) => (s.providerSymbol ? [[s.symbol, s.providerSymbol] as const] : [])),
+  );
+  const provider = createMarketDataProvider(profiles, anchorDate, symbolMap);
   const symbols = stocks.map((s) => s.symbol);
   const bars = await provider.bars(symbols, args.from, args.to);
 

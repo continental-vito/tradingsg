@@ -34,9 +34,23 @@ Being explicit about this is cheaper than rediscovering it during a demo.
 
 - **The PostgreSQL migration has not been run against a live database.** See
   `docs/deployment.md`.
-- **Mock prices are synthetic.** They are seeded and reproducible, and they are
-  shaped to give a believable spread of winners and losers — but they are not
-  real market data and must never be presented as such.
+- **Which prices you get depends on `MARKET_DATA_PROVIDER`.** `mock` is a
+  seeded synthetic market — reproducible and shaped for a believable spread,
+  but not real data and never to be presented as such. `yahoo` is real, free
+  and includes history. `finnhub` has no free history and cannot value a
+  portfolio backwards.
+- **A real-price competition must be single-currency.** The engine does no FX
+  conversion: every price is taken to be in the competition's currency. The
+  demo universe therefore uses EUR listings throughout — Apple as `APC.DE` on
+  XETRA rather than `AAPL` on NASDAQ, Shell as `SHELL.AS` rather than the
+  London line that quotes in pence. A stock whose listing returns another
+  currency is refused with a message naming the fix, rather than mispriced.
+  Supporting a mixed-currency universe means storing daily FX rates and
+  converting at valuation time; it is not built.
+- **Yahoo is an unofficial endpoint.** No official public API has existed since 2017. A bare request is answered with `429`; it works through a maintained
+  client that handles the cookie and crumb handshake. Fine for one daily job
+  over a few dozen symbols, and it can break without notice — which is why the
+  provider sits behind an interface and `mock` still works offline.
 - **A delisted stock has no defined policy yet.** If a name stops pricing
   mid-competition, the valuation ladder carries its last close forward
   indefinitely and flags the valuation `DEGRADED`. Force-liquidation at the last

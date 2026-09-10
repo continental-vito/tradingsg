@@ -15,7 +15,7 @@ import { z } from "zod";
  * the better answer than an exception.
  */
 export const EMAIL_PROVIDERS = ["console", "smtp", "resend"] as const;
-export const MARKET_DATA_PROVIDERS = ["mock", "finnhub"] as const;
+export const MARKET_DATA_PROVIDERS = ["mock", "yahoo", "finnhub"] as const;
 
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),

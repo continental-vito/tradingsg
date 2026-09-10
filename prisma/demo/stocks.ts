@@ -11,6 +11,16 @@
  */
 export interface DemoStock {
   symbol: string;
+  /**
+   * The listing to fetch from a real provider. Every one is EUR-quoted and
+   * was verified against Yahoo before being written here: the US names use
+   * their XETRA lines (Apple as APC.DE, not AAPL) because this competition
+   * values everything in euro and the engine does not convert currencies.
+   * Nestlé, Novo Nordisk and Shell use their EUR listings for the same
+   * reason — their home lines quote in CHF, DKK and pence, and pence would
+   * be a hundredfold error.
+   */
+  providerSymbol: string;
   name: string;
   exchange: string;
   currency: string;
@@ -23,6 +33,7 @@ export interface DemoStock {
 export const DEMO_STOCKS: DemoStock[] = [
   {
     symbol: "AAPL",
+    providerSymbol: "APC.DE",
     name: "Apple",
     exchange: "NASDAQ",
     currency: "EUR",
@@ -33,6 +44,7 @@ export const DEMO_STOCKS: DemoStock[] = [
   },
   {
     symbol: "MSFT",
+    providerSymbol: "MSF.DE",
     name: "Microsoft",
     exchange: "NASDAQ",
     currency: "EUR",
@@ -43,6 +55,7 @@ export const DEMO_STOCKS: DemoStock[] = [
   },
   {
     symbol: "NVDA",
+    providerSymbol: "NVD.DE",
     name: "Nvidia",
     exchange: "NASDAQ",
     currency: "EUR",
@@ -53,6 +66,7 @@ export const DEMO_STOCKS: DemoStock[] = [
   },
   {
     symbol: "AMZN",
+    providerSymbol: "AMZ.DE",
     name: "Amazon",
     exchange: "NASDAQ",
     currency: "EUR",
@@ -63,6 +77,7 @@ export const DEMO_STOCKS: DemoStock[] = [
   },
   {
     symbol: "GOOGL",
+    providerSymbol: "ABEA.DE",
     name: "Alphabet",
     exchange: "NASDAQ",
     currency: "EUR",
@@ -73,6 +88,7 @@ export const DEMO_STOCKS: DemoStock[] = [
   },
   {
     symbol: "TSLA",
+    providerSymbol: "TL0.DE",
     name: "Tesla",
     exchange: "NASDAQ",
     currency: "EUR",
@@ -83,6 +99,7 @@ export const DEMO_STOCKS: DemoStock[] = [
   },
   {
     symbol: "META",
+    providerSymbol: "FB2A.DE",
     name: "Meta Platforms",
     exchange: "NASDAQ",
     currency: "EUR",
@@ -93,6 +110,7 @@ export const DEMO_STOCKS: DemoStock[] = [
   },
   {
     symbol: "SAP",
+    providerSymbol: "SAP.DE",
     name: "SAP",
     exchange: "XETRA",
     currency: "EUR",
@@ -103,6 +121,7 @@ export const DEMO_STOCKS: DemoStock[] = [
   },
   {
     symbol: "ASML",
+    providerSymbol: "ASML.AS",
     name: "ASML Holding",
     exchange: "AMS",
     currency: "EUR",
@@ -113,6 +132,7 @@ export const DEMO_STOCKS: DemoStock[] = [
   },
   {
     symbol: "SIE",
+    providerSymbol: "SIE.DE",
     name: "Siemens",
     exchange: "XETRA",
     currency: "EUR",
@@ -123,6 +143,7 @@ export const DEMO_STOCKS: DemoStock[] = [
   },
   {
     symbol: "MC",
+    providerSymbol: "MC.PA",
     name: "LVMH",
     exchange: "EPA",
     currency: "EUR",
@@ -133,6 +154,7 @@ export const DEMO_STOCKS: DemoStock[] = [
   },
   {
     symbol: "NESN",
+    providerSymbol: "NESR.DE",
     name: "Nestlé",
     exchange: "SIX",
     currency: "EUR",
@@ -143,6 +165,7 @@ export const DEMO_STOCKS: DemoStock[] = [
   },
   {
     symbol: "NOVO",
+    providerSymbol: "NOV.DE",
     name: "Novo Nordisk",
     exchange: "CPH",
     currency: "EUR",
@@ -153,6 +176,7 @@ export const DEMO_STOCKS: DemoStock[] = [
   },
   {
     symbol: "AIR",
+    providerSymbol: "AIR.PA",
     name: "Airbus",
     exchange: "EPA",
     currency: "EUR",
@@ -163,6 +187,7 @@ export const DEMO_STOCKS: DemoStock[] = [
   },
   {
     symbol: "SHEL",
+    providerSymbol: "SHELL.AS",
     name: "Shell",
     exchange: "LSE",
     currency: "EUR",
@@ -173,6 +198,7 @@ export const DEMO_STOCKS: DemoStock[] = [
   },
   {
     symbol: "ADYEN",
+    providerSymbol: "ADYEN.AS",
     name: "Adyen",
     exchange: "AMS",
     currency: "EUR",
@@ -183,6 +209,7 @@ export const DEMO_STOCKS: DemoStock[] = [
   },
   {
     symbol: "ALV",
+    providerSymbol: "ALV.DE",
     name: "Allianz",
     exchange: "XETRA",
     currency: "EUR",
@@ -193,6 +220,7 @@ export const DEMO_STOCKS: DemoStock[] = [
   },
   {
     symbol: "OR",
+    providerSymbol: "OR.PA",
     name: "L'Oréal",
     exchange: "EPA",
     currency: "EUR",

@@ -81,8 +81,20 @@ candidate, so `npm install prisma@latest` silently splits the pair.
 
 | Interface            | Implementations       | Where                |
 | -------------------- | --------------------- | -------------------- |
-| `MarketDataProvider` | mock, Finnhub         | `src/server/market/` |
+| `MarketDataProvider` | mock, Yahoo, Finnhub  | `src/server/market/` |
 | `EmailProvider`      | console, SMTP, Resend | `src/server/email/`  |
+
+Yahoo is the one to use for real prices: free, no key, and it returns the daily
+history the valuation engine needs. Finnhub's free tier has quotes only, which
+is why its `bars()` throws rather than returning an empty array that would read
+as "the market was closed for six weeks".
+
+**A real-price competition is single-currency.** The engine does no FX
+conversion, so every listing must already be quoted in the competition's
+currency. `Stock.providerSymbol` holds the listing to fetch, and the demo
+universe uses EUR lines throughout — Apple as `APC.DE` on XETRA, not `AAPL`.
+A mismatch is refused by `assertEuroCurrency` rather than booked at the wrong
+scale, and `GBp` is named explicitly because pence is a hundredfold error.
 
 **No provider name appears outside its own adapter file.** `build/check-scripts.sh`
 greps for `finnhub`, `resend` and `nodemailer` across `src/` and fails CI on a

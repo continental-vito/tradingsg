@@ -81,6 +81,9 @@ check_seam() {
         [[ -z "${file}" ]] && continue
         [[ "${file}" == "${adapter}" ]] && continue
         [[ "${file}" == "${factory}" ]] && continue
+        # The adapter's own test: it cannot check a seam without naming what
+        # sits behind it.
+        [[ "${file}" == "${adapter%.ts}.test.ts" ]] && continue
         [[ "${file}" == "src/lib/env.ts" ]] && continue
         # Comment lines are excluded on purpose. What matters is whether code is
         # coupled to a provider — an import, an identifier, a string. A doc
@@ -101,6 +104,7 @@ check_seam() {
     fi
 }
 
+check_seam yahoo      src/server/market/yahoo.ts   src/server/market/index.ts
 check_seam finnhub    src/server/market/finnhub.ts src/server/market/index.ts
 check_seam resend     src/server/email/resend.ts   src/server/email/index.ts
 check_seam nodemailer src/server/email/smtp.ts     src/server/email/index.ts

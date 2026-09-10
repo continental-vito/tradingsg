@@ -185,6 +185,21 @@ writes.
 
 ---
 
+## What lives where a test can reach it
+
+Three things are deliberately split out of the code that calls them, because
+`requireAdmin()`, `notFound()` and `redirect()` only work inside a Next request
+and these are the parts that must be provable rather than merely reviewed:
+
+| Logic              | Lives in                                   | Called by                  |
+| ------------------ | ------------------------------------------ | -------------------------- |
+| Ownership queries  | `src/server/auth/ownership.ts`             | the guards in `guard.ts`   |
+| Rebalance planning | `src/server/portfolio/rebalance.ts` (pure) | the preview and the commit |
+| Manual adjustments | `src/server/portfolio/adjust.ts`           | `adjustPortfolioAction`    |
+
+If you add another operation that touches the ledger or access control, follow
+the same shape.
+
 ## Tests
 
 Vitest, against a real SQLite file rather than mocks — the things most worth

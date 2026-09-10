@@ -8,6 +8,16 @@ export default defineConfig({
     environment: "node",
     include: ["src/**/*.test.ts", "prisma/**/*.test.ts"],
     reporters: process.env.CI ? ["default", "github-actions"] : ["default"],
+    // Set here rather than in a beforeAll: src/lib/env.ts parses process.env at
+    // import time, which happens before any hook runs — so a test that assigned
+    // these in setup would still have written into the real outbox.
+    env: {
+      EMAIL_PROVIDER: "console",
+      EMAIL_OUTBOX_DIR: ".mail-test",
+      MARKET_DATA_PROVIDER: "mock",
+      COMPANY_NAME: "Acme Corp",
+      APP_URL: "http://localhost:3000",
+    },
   },
   resolve: {
     alias: {

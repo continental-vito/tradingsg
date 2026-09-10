@@ -26,7 +26,9 @@ next-env.d.ts
 *.sqlite
 
 # Rendered emails written by the console email provider, for local review.
+# .mail-test is the isolated outbox the test suite uses.
 /.mail/
+/.mail-test/
 
 # Test and tooling artefacts.
 /coverage/

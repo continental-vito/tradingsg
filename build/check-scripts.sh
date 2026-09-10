@@ -30,7 +30,7 @@ SECRET_NAMES='FINNHUB_API_KEY|RESEND_API_KEY|SMTP_PASSWORD|CRON_SECRET|DATABASE_
 if grep -rnE "(${SECRET_NAMES})[[:space:]]*[=:][[:space:]]*[\"'][A-Za-z0-9_/+-]{12,}[\"']" \
         --include='*.ts' --include='*.tsx' --include='*.mjs' --include='*.json' \
         --include='*.yml' --include='*.sh' \
-        --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=src/generated \
+        --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=generated \
         . 2>/dev/null | grep -v '\.env\.example'; then
     fail "a credential looks hard-coded above — move it to the environment"
 else
@@ -69,18 +69,41 @@ fi
 # 5. Provider names stay behind their seams. The whole point of the adapter
 #    layer is that swapping a provider touches one file; a stray import
 #    elsewhere silently undoes that without breaking a test.
-for provider in finnhub resend nodemailer; do
-    hits=$(grep -rlniE "\b${provider}\b" \
+#    A name may appear in its own adapter AND in the factory that chooses
+#    between adapters — the factory has to import them by name. Nowhere else.
+#    The mapping is explicit rather than derived from the filename, because a
+#    file is named for the job it does, not for the library it happens to use:
+#    the SMTP adapter is smtp.ts, and renaming it to nodemailer.ts to satisfy a
+#    regex would be the tail wagging the dog.
+check_seam() {
+    local term="$1" adapter="$2" factory="$3" hits="" file=""
+    while read -r file; do
+        [[ -z "${file}" ]] && continue
+        [[ "${file}" == "${adapter}" ]] && continue
+        [[ "${file}" == "${factory}" ]] && continue
+        [[ "${file}" == "src/lib/env.ts" ]] && continue
+        # Comment lines are excluded on purpose. What matters is whether code is
+        # coupled to a provider — an import, an identifier, a string. A doc
+        # comment naming one is documentation, and a check that fires on prose
+        # is a check people weaken rather than obey.
+        if grep -vE '^[[:space:]]*(//|\*|/\*)' "${file}" | grep -qiE "\b${term}\b"; then
+            hits="${hits} ${file}"
+        fi
+    done < <(grep -rlniE "\b${term}\b" \
         --include='*.ts' --include='*.tsx' \
-        --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=src/generated \
-        src 2>/dev/null | grep -viE "src/server/(market|email)/(${provider}|index)\.ts$" \
-                        | grep -viE "src/lib/env\.ts$" || true)
+        --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=generated \
+        src 2>/dev/null || true)
+
     if [[ -n "${hits}" ]]; then
-        fail "'${provider}' is named outside its adapter: ${hits}"
+        fail "'${term}' is named in code outside ${adapter}:${hits}"
     else
-        ok "'${provider}' stays behind its adapter"
+        ok "'${term}' stays behind ${adapter}"
     fi
-done
+}
+
+check_seam finnhub    src/server/market/finnhub.ts src/server/market/index.ts
+check_seam resend     src/server/email/resend.ts   src/server/email/index.ts
+check_seam nodemailer src/server/email/smtp.ts     src/server/email/index.ts
 
 # 6. The Prisma schema stays portable. A native enum or a @db. annotation
 #    compiles on one provider and fails on the other, and the failure arrives at

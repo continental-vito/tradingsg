@@ -88,12 +88,15 @@ export default async function DashboardPage() {
             <div className="tnum mt-1 text-4xl font-semibold tracking-tight sm:text-5xl">
               {headline.currentValue.text}
             </div>
+            {/* Sign and colour both come from the gain itself, not from the
+                ratio beside it — a four-cent loss rounds to 0.00% and used to
+                render as "+0,04 €". */}
             <div
               className={
-                "tnum mt-1 text-lg font-medium " + toneClass(headline.totalReturn.direction)
+                "tnum mt-1 text-lg font-medium " + toneClass(headline.totalGainLoss.direction)
               }
             >
-              {headline.totalReturn.direction < 0 ? "−" : "+"}
+              {headline.totalGainLoss.direction < 0 ? "−" : "+"}
               {headline.totalGainLoss.text.replace(/^-/, "")} ({headline.totalReturn.text})
             </div>
           </div>
@@ -108,11 +111,17 @@ export default async function DashboardPage() {
             </Link>
           ) : null}
         </div>
-        {headline.asOfDate ? (
-          <p className="mt-4 text-xs text-[var(--text-muted)]">
-            Valued at the close on {headline.asOfDate}, using the same prices for everyone.
-          </p>
-        ) : null}
+        <p className="mt-4 text-xs text-[var(--text-muted)]">
+          {headline.asOfDate ? (
+            <>Valued at the close on {headline.asOfDate}, using the same prices for everyone.</>
+          ) : (
+            <>
+              Priced live from the latest available close, because you have traded since the last
+              valuation. The leaderboard still shows the last committed standings, so this figure
+              may be ahead of your ranking until tonight&rsquo;s valuation runs.
+            </>
+          )}
+        </p>
       </Card>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

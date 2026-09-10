@@ -28,8 +28,15 @@ export function Stat({
       <div className="text-sm text-[var(--text-muted)]">{label}</div>
       <div className="tnum mt-1 text-xl font-semibold">{value}</div>
       {ratio ? (
-        <div className={"tnum mt-0.5 text-sm font-medium " + toneClass(ratio.direction)}>
-          {delta ? `${ratio.direction < 0 ? "−" : "+"}${stripSign(delta.text)} · ` : ""}
+        // When there is an amount, it owns the sign and the colour: a loss too
+        // small to move the percentage must not render with a plus in front.
+        <div
+          className={
+            "tnum mt-0.5 text-sm font-medium " +
+            toneClass(delta ? delta.direction : ratio.direction)
+          }
+        >
+          {delta ? `${delta.direction < 0 ? "−" : "+"}${stripSign(delta.text)} · ` : ""}
           {ratio.text}
         </div>
       ) : null}

@@ -17,8 +17,17 @@ import { formatCents, formatPpm, formatShares, type Cents, type MicroShares } fr
 export interface MoneyDto {
   /** Exact, as a decimal string. Never parsed back into a Number for maths. */
   cents: string;
-  /** Pre-formatted for display. */
+  /** Pre-formatted for display, carrying its own minus sign when negative. */
   text: string;
+  /**
+   * -1, 0 or 1, taken from THIS amount.
+   *
+   * It exists because the dashboard used to take the sign from a separately
+   * computed ratio and the magnitude from the gain — so a four-cent loss, whose
+   * ratio rounds to 0.00%, rendered as "+0,04 €". A sign and the number beside
+   * it must come from the same value.
+   */
+  direction: -1 | 0 | 1;
   /**
    * A lossy Number, for chart geometry ONLY. A pixel position does not need
    * 64-bit precision, and every charting library takes numbers. Never use this
@@ -31,6 +40,7 @@ export function money(cents: Cents, currency = "EUR"): MoneyDto {
   return {
     cents: cents.toString(),
     text: formatCents(cents, currency),
+    direction: cents > 0n ? 1 : cents < 0n ? -1 : 0,
     plot: Number(cents),
   };
 }

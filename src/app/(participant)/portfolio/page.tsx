@@ -5,7 +5,7 @@ import { JoinPrompt } from "@/components/join-prompt";
 import { loadJoinable } from "@/server/dto/participation";
 import { AllocationDonut } from "@/components/charts/allocation-donut";
 import { CASH_COLOR, topNWithOther } from "@/components/charts/palette";
-import { Card, EmptyState } from "@/components/ui";
+import { Alert, Card, EmptyState } from "@/components/ui";
 import { toneClass } from "@/components/stat";
 import { requireUser } from "@/server/auth/guard";
 import { loadDashboard } from "@/server/dto/portfolio.dto";
@@ -64,6 +64,13 @@ export default async function PortfolioPage() {
           </Link>
         </div>
       </div>
+
+      {headline.isLive && holdings.length > 0 ? (
+        <Alert tone="info">
+          Priced live from the latest available close, because you have traded since the last
+          valuation. Your position on the leaderboard updates when tonight&rsquo;s valuation runs.
+        </Alert>
+      ) : null}
 
       {holdings.length === 0 ? (
         <EmptyState

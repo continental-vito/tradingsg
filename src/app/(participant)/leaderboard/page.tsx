@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Avatar } from "@/components/avatar";
 import { Card, EmptyState } from "@/components/ui";
 import { toneClass } from "@/components/stat";
 import { requireUser } from "@/server/auth/guard";
@@ -264,6 +265,7 @@ function Row({ row }: { row: LeaderboardRow }) {
       </td>
       <td className="px-3 py-3">
         <div className="flex items-center gap-2">
+          <Avatar name={row.displayName} avatarUrl={row.avatarUrl} size="sm" />
           <span className="font-medium">{row.displayName}</span>
           {row.isYou ? (
             <span className="rounded-full bg-accent-600 px-1.5 py-0.5 text-[10px] font-medium text-white">

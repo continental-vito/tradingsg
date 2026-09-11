@@ -8,6 +8,7 @@ export interface LeaderboardRow {
   participantId: string;
   displayName: string;
   department: string | null;
+  avatarUrl: string | null;
   rank: number | null;
   displayOrder: number;
   rankChange: number | null;
@@ -66,7 +67,11 @@ export async function loadLeaderboard(
         orderBy: { displayOrder: "asc" },
         include: {
           participant: {
-            select: { id: true, displayName: true, user: { select: { department: true } } },
+            select: {
+              id: true,
+              displayName: true,
+              user: { select: { department: true, avatarUrl: true } },
+            },
           },
         },
       },
@@ -104,6 +109,7 @@ export async function loadLeaderboard(
       participantId: e.participantId,
       displayName: e.participant.displayName,
       department: e.participant.user.department,
+      avatarUrl: e.participant.user.avatarUrl,
       rank: e.rank,
       displayOrder: e.displayOrder,
       rankChange: e.rankChange,

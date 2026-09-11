@@ -4,6 +4,7 @@ import { backfillPrices, missingTradingDays, refreshQuoteCache } from "./prices"
 import { snapshotLeaderboard } from "./leaderboard";
 import { snapshotValuations } from "./valuations";
 import { runNotifications } from "./notifications";
+import { pruneExports, storeExports } from "@/server/backup/export";
 import { buildWeeklyReport } from "@/server/reports/generate";
 import { sendWeeklyReport } from "@/server/reports/send";
 import { runJob, type JobOutcome } from "./run";
@@ -338,6 +339,50 @@ export const JOBS: JobDefinition[] = [
                 competitionId: competition.id,
                 asOfDate: dateKeyOf(now, competition.timezone),
               }),
+          ),
+        );
+      }
+      return outcomes;
+    },
+  },
+
+  {
+    name: "export-backup",
+    description: "Write the day's CSV backup so portfolios can be rebuilt.",
+    cron: "45 23 * * *",
+    runKeyFor: (now, tz) => dateKeyOf(now, tz),
+    run: async (db, args) => {
+      const now = args.now ?? new Date();
+      const outcomes: JobOutcome[] = [];
+      for (const competition of await activeCompetitions(db, args.competitionSlug)) {
+        const today = dateKeyOf(now, competition.timezone);
+        outcomes.push(
+          await runJob(
+            db,
+            {
+              jobName: "export-backup",
+              runKey: `${competition.slug}:${today}`,
+              triggeredBy: args.triggeredBy,
+              force: args.force,
+            },
+            async (ctx) => {
+              const files = await storeExports(ctx.db, competition.id, today, "CRON");
+              const rows = files.reduce((sum, f) => sum + f.rowCount, 0);
+              const bytes = files.reduce((sum, f) => sum + f.byteSize, 0);
+              ctx.log(
+                `${files.length} files, ${rows} rows, ${(bytes / 1024).toFixed(0)} KB: ` +
+                  files.map((f) => `${f.kind}=${f.rowCount}`).join(" "),
+              );
+
+              // Ninety days is well past the length of a competition, so the
+              // whole of one is always recoverable while nothing accumulates
+              // forever.
+              const cutoff = addDays(today, -90);
+              const pruned = await pruneExports(ctx.db, competition.id, cutoff);
+              if (pruned > 0) ctx.log(`pruned ${pruned} export(s) older than ${cutoff}`);
+
+              return { itemsProcessed: rows, detail: { files: files.length, bytes } };
+            },
           ),
         );
       }

@@ -59,7 +59,9 @@ export async function buildWeeklyReport(db: PrismaClient, args: BuildArgs) {
         orderBy: { displayOrder: "asc" },
         include: {
           participant: {
-            include: { user: { select: { firstName: true, email: true, isDisabled: true } } },
+            include: {
+              user: { select: { id: true, firstName: true, email: true, isDisabled: true } },
+            },
           },
         },
       },
@@ -97,6 +99,19 @@ export async function buildWeeklyReport(db: PrismaClient, args: BuildArgs) {
       );
     }
   }
+
+  // Who has turned the weekly email off. The notifications page offers that
+  // choice per channel, and until now only the IN_APP half was honoured — so
+  // opting out silenced the in-app item and the email arrived anyway, which
+  // makes the setting a lie rather than a preference.
+  const optedOut = new Set(
+    (
+      await db.notificationPreference.findMany({
+        where: { type: "WEEKLY_REPORT", channel: "EMAIL", enabled: false },
+        select: { userId: true },
+      })
+    ).map((p) => p.userId),
+  );
 
   const ranked = snapshot.entries.filter((e) => e.rank !== null);
   const returns = ranked.map((e) => e.totalReturnPpm);
@@ -250,7 +265,9 @@ export async function buildWeeklyReport(db: PrismaClient, args: BuildArgs) {
         ? "INACTIVE"
         : !participant.user.email
           ? "NO_EMAIL"
-          : null;
+          : optedOut.has(participant.userId)
+            ? "OPTED_OUT"
+            : null;
 
       await tx.weeklyReportEntry.create({
         data: {

@@ -121,37 +121,73 @@ export function PreferenceToggles({
   preferences,
   setPreference,
 }: {
-  preferences: { type: string; label: string; description: string; enabled: boolean }[];
-  setPreference: (input: { type: string; enabled: boolean }) => Promise<{ ok: boolean }>;
+  preferences: {
+    type: string;
+    label: string;
+    description: string;
+    inApp: boolean;
+    /** Null when this type is never emailed, so no dead toggle is offered. */
+    email: boolean | null;
+  }[];
+  setPreference: (input: {
+    type: string;
+    channel: string;
+    enabled: boolean;
+  }) => Promise<{ ok: boolean }>;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
 
+  const toggle = (type: string, channel: string, enabled: boolean) =>
+    start(async () => {
+      await setPreference({ type, channel, enabled });
+      router.refresh();
+    });
+
   return (
-    <ul className="divide-y divide-[var(--border)]">
-      {preferences.map((p) => (
-        <li key={p.type} className="flex items-start justify-between gap-4 py-3 first:pt-0">
-          <div>
-            <div className="text-sm font-medium">{p.label}</div>
-            <p className="mt-0.5 text-xs text-[var(--text-muted)]">{p.description}</p>
-          </div>
-          <label className="flex shrink-0 items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={p.enabled}
-              disabled={pending}
-              onChange={(e) =>
-                start(async () => {
-                  await setPreference({ type: p.type, enabled: e.target.checked });
-                  router.refresh();
-                })
-              }
-              className="size-4 accent-accent-600"
-            />
-            <span className="sr-only">{p.label}</span>
-          </label>
-        </li>
-      ))}
-    </ul>
+    <div>
+      <div className="flex justify-end gap-6 pb-2 text-xs text-[var(--text-muted)]">
+        <span className="w-12 text-center">Here</span>
+        <span className="w-12 text-center">Email</span>
+      </div>
+      <ul className="divide-y divide-[var(--border)]">
+        {preferences.map((p) => (
+          <li key={p.type} className="flex items-start justify-between gap-4 py-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium">{p.label}</div>
+              <p className="mt-0.5 text-xs text-[var(--text-muted)]">{p.description}</p>
+            </div>
+            <div className="flex shrink-0 gap-6">
+              <span className="flex w-12 justify-center">
+                <input
+                  type="checkbox"
+                  checked={p.inApp}
+                  disabled={pending}
+                  onChange={(e) => toggle(p.type, "IN_APP", e.target.checked)}
+                  aria-label={`${p.label} — show here`}
+                  className="size-4 accent-accent-600"
+                />
+              </span>
+              <span className="flex w-12 justify-center">
+                {p.email === null ? (
+                  <span className="text-xs text-[var(--text-muted)]" title="Never emailed">
+                    —
+                  </span>
+                ) : (
+                  <input
+                    type="checkbox"
+                    checked={p.email}
+                    disabled={pending}
+                    onChange={(e) => toggle(p.type, "EMAIL", e.target.checked)}
+                    aria-label={`${p.label} — email me`}
+                    className="size-4 accent-accent-600"
+                  />
+                )}
+              </span>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

@@ -123,10 +123,33 @@ export async function destroySession(): Promise<void> {
   store.delete(SESSION_COOKIE);
 }
 
-/** Every session of one user, e.g. after a password change or an admin disable. */
+/** Every session of one user, e.g. after an admin disables the account. */
 export async function revokeAllSessions(userId: string, reason: string): Promise<void> {
   await db.session.updateMany({
     where: { userId, revokedAt: null },
     data: { revokedAt: new Date(), revokedReason: reason },
   });
+}
+
+/**
+ * Every session EXCEPT the caller's own.
+ *
+ * What a password change actually wants: anyone holding a stolen cookie loses
+ * it, while the person who just typed their new password stays signed in on the
+ * page they typed it on. Revoking everything would sign them out of their own
+ * account as a reward for improving its security.
+ */
+export async function revokeOtherSessions(userId: string, reason: string): Promise<number> {
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE)?.value;
+
+  const result = await db.session.updateMany({
+    where: {
+      userId,
+      revokedAt: null,
+      ...(token ? { NOT: { tokenHash: hashToken(token) } } : {}),
+    },
+    data: { revokedAt: new Date(), revokedReason: reason },
+  });
+  return result.count;
 }

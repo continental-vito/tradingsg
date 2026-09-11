@@ -161,3 +161,40 @@ describe("sendWeeklyReport", () => {
     expect(await db.weeklyReport.count({ where: { competitionId } })).toBeGreaterThan(1);
   });
 });
+
+describe("weekly email opt-out", () => {
+  // Runs last on purpose: it forces a rebuild, and the tests above assert
+  // absolute revision numbers.
+  it("skips someone who has turned the weekly email off", async () => {
+    // The notifications page offers this choice. Until the report honoured it,
+    // opting out silenced the in-app item and the email arrived anyway — which
+    // makes a preference a lie rather than a setting.
+    await db.notificationPreference.create({
+      data: { userId: alice.user.id, type: "WEEKLY_REPORT", channel: "EMAIL", enabled: false },
+    });
+
+    const report = await buildWeeklyReport(db, {
+      competitionId,
+      asOfDate: DAY_TWO,
+      force: true,
+    });
+
+    const entry = await db.weeklyReportEntry.findFirstOrThrow({
+      where: { reportId: report.id, participantId: alice.participant.id },
+    });
+    expect(entry.sendStatus).toBe("SKIPPED");
+    expect(entry.skipReason).toBe("OPTED_OUT");
+    // ...but the report is still BUILT for them, so their figures exist on the
+    // site even though no email goes out.
+    expect(entry.renderedHtml.length).toBeGreaterThan(500);
+
+    // Sending now reaches everyone except them.
+    const outcome = await sendWeeklyReport(db, report.id);
+    expect(outcome.sent).toBe(report.recipientCount);
+    expect(
+      await db.emailLog.count({
+        where: { reportId: report.id, participantId: alice.participant.id, isTest: false },
+      }),
+    ).toBe(0);
+  });
+});

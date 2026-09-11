@@ -1,6 +1,10 @@
 import type { Metadata } from "next";
-import { updateSettingsAction } from "@/app/actions/admin";
-import { CompetitionSettingsForm } from "@/components/admin-controls";
+import {
+  createTradingWindowAction,
+  deleteTradingWindowAction,
+  updateSettingsAction,
+} from "@/app/actions/admin";
+import { CompetitionSettingsForm, TradingWindows } from "@/components/admin-controls";
 import { Card, EmptyState } from "@/components/ui";
 import { requireAdmin } from "@/server/auth/guard";
 import { db } from "@/server/db";
@@ -14,7 +18,10 @@ export default async function AdminSettingsPage() {
   const competition = await db.competition.findFirst({
     where: { deletedAt: null },
     orderBy: { startsAt: "desc" },
-    include: { settings: { orderBy: { revision: "desc" } } },
+    include: {
+      settings: { orderBy: { revision: "desc" } },
+      tradingWindows: { where: { isActive: true }, orderBy: { opensAt: "asc" } },
+    },
   });
   if (!competition) return <EmptyState title="No competition" body="Create one first." />;
 
@@ -49,6 +56,27 @@ export default async function AdminSettingsPage() {
             revision: current.revision,
           }}
           save={updateSettingsAction}
+        />
+      </Card>
+
+      <Card>
+        <h2 className="text-sm font-medium">Trading windows</h2>
+        <p className="mt-1 mb-4 text-xs text-[var(--text-muted)]">
+          Explicit windows rather than a schedule expression, because “when does the next one open?”
+          is a question participants are shown in plain language.
+        </p>
+        <TradingWindows
+          competitionId={competition.id}
+          mode={current.tradingMode}
+          windows={competition.tradingWindows.map((w) => ({
+            id: w.id,
+            label: w.label,
+            opensAt: w.opensAt.toISOString().slice(0, 16).replace("T", " "),
+            closesAt: w.closesAt.toISOString().slice(0, 16).replace("T", " "),
+            isOpenNow: w.opensAt <= new Date() && new Date() < w.closesAt,
+          }))}
+          create={createTradingWindowAction}
+          remove={deleteTradingWindowAction}
         />
       </Card>
 

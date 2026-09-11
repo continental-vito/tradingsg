@@ -49,9 +49,12 @@ export function AppNav({
               demo
             </span>
           ) : null}
-          <span className="hidden text-sm text-[var(--text-muted)] sm:inline">
+          <Link
+            href="/account"
+            className="hidden rounded-lg px-2 py-1.5 text-sm text-[var(--text-muted)] hover:bg-[var(--surface-sunken)] hover:text-[var(--text)] sm:inline"
+          >
             {user.firstName} {user.lastName}
-          </span>
+          </Link>
           <form action={logoutAction}>
             <button
               type="submit"

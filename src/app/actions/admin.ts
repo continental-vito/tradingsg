@@ -47,12 +47,16 @@ async function audit(
   });
 }
 
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+
 const competitionSchema = z.object({
   competitionId: z.string().min(1),
   name: z.string().trim().min(1, "The competition needs a name."),
   description: z.string().trim().max(500).optional(),
   status: z.enum(["DRAFT", "REGISTRATION", "RUNNING", "PAUSED", "ENDED"]),
   registrationOpen: z.boolean(),
+  startDate: z.string().regex(DATE, "Use a YYYY-MM-DD date."),
+  endDate: z.string().regex(DATE, "Use a YYYY-MM-DD date."),
 });
 
 export async function updateCompetitionAction(
@@ -67,13 +71,38 @@ export async function updateCompetitionAction(
   const before = await db.competition.findUnique({ where: { id: parsed.data.competitionId } });
   if (!before) return { ok: false, error: "That competition no longer exists." };
 
+  const d = parsed.data;
+
+  if (d.endDate <= d.startDate) {
+    return { ok: false, error: "The competition has to end after it starts." };
+  }
+
+  // Moving the window after portfolios exist silently rewrites what every
+  // stored valuation was measured against, so it is refused rather than
+  // quietly invalidating the standings.
+  if (d.startDate !== before.startDate) {
+    const valued = await db.portfolioValuation.count({
+      where: { competitionId: d.competitionId },
+    });
+    if (valued > 0) {
+      return {
+        ok: false,
+        error: `The start date cannot be moved: ${valued} valuations have already been computed against ${before.startDate}, and changing it would silently alter every return. End the competition and create a new one instead.`,
+      };
+    }
+  }
+
   const updated = await db.competition.update({
-    where: { id: parsed.data.competitionId },
+    where: { id: d.competitionId },
     data: {
-      name: parsed.data.name,
-      description: parsed.data.description ?? null,
-      status: parsed.data.status,
-      registrationOpen: parsed.data.registrationOpen,
+      name: d.name,
+      description: d.description ?? null,
+      status: d.status,
+      registrationOpen: d.registrationOpen,
+      startDate: d.startDate,
+      endDate: d.endDate,
+      startsAt: new Date(`${d.startDate}T08:00:00Z`),
+      endsAt: new Date(`${d.endDate}T17:30:00Z`),
     },
   });
 
@@ -82,13 +111,115 @@ export async function updateCompetitionAction(
     "competition.update",
     "Competition",
     updated.id,
-    { status: before.status, registrationOpen: before.registrationOpen },
-    { status: updated.status, registrationOpen: updated.registrationOpen },
+    {
+      status: before.status,
+      registrationOpen: before.registrationOpen,
+      startDate: before.startDate,
+      endDate: before.endDate,
+    },
+    {
+      status: updated.status,
+      registrationOpen: updated.registrationOpen,
+      startDate: updated.startDate,
+      endDate: updated.endDate,
+    },
   );
 
   revalidatePath("/admin");
+  revalidatePath("/admin/competition");
   revalidatePath("/");
-  return { ok: true, message: "Competition updated." };
+  revalidatePath("/competition");
+  return { ok: true, message: `${updated.name} updated.` };
+}
+
+const createSchema = z.object({
+  name: z.string().trim().min(1, "The competition needs a name."),
+  slug: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9-]+$/, "Use lowercase letters, numbers and hyphens only.")
+    .min(2)
+    .max(50),
+  description: z.string().trim().max(500).optional(),
+  startDate: z.string().regex(DATE, "Use a YYYY-MM-DD date."),
+  endDate: z.string().regex(DATE, "Use a YYYY-MM-DD date."),
+  startingCapitalEuros: z.coerce.number().int().min(1).max(100_000_000),
+  timezone: z.string().trim().min(1).default("Europe/Berlin"),
+  copyStocksFrom: z.string().optional(),
+});
+
+/**
+ * Creating a competition, with its settings row and stock universe, in one
+ * transaction. A competition without settings has no rules for the rebalance
+ * planner to validate against, and a competition without stocks cannot be
+ * allocated — half a competition is not a useful thing to have created.
+ */
+export async function createCompetitionAction(
+  input: z.input<typeof createSchema>,
+): Promise<ActionResult> {
+  const admin = await requireAdmin();
+  const parsed = createSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Those values are not valid." };
+  }
+  const d = parsed.data;
+
+  if (d.endDate <= d.startDate) {
+    return { ok: false, error: "The competition has to end after it starts." };
+  }
+  if (await db.competition.findUnique({ where: { slug: d.slug } })) {
+    return { ok: false, error: `A competition with the address "${d.slug}" already exists.` };
+  }
+
+  const created = await db.$transaction(async (tx) => {
+    const competition = await tx.competition.create({
+      data: {
+        slug: d.slug,
+        name: d.name,
+        description: d.description ?? null,
+        status: "DRAFT",
+        registrationOpen: false,
+        timezone: d.timezone,
+        startingCapitalCents: BigInt(d.startingCapitalEuros) * 100n,
+        startDate: d.startDate,
+        endDate: d.endDate,
+        startsAt: new Date(`${d.startDate}T08:00:00Z`),
+        endsAt: new Date(`${d.endDate}T17:30:00Z`),
+      },
+    });
+
+    await tx.competitionSettings.create({
+      data: { competitionId: competition.id, revision: 1 },
+    });
+
+    if (d.copyStocksFrom) {
+      const source = await tx.competitionStock.findMany({
+        where: { competitionId: d.copyStocksFrom, removedAt: null },
+        orderBy: { sortOrder: "asc" },
+      });
+      for (const [i, row] of source.entries()) {
+        await tx.competitionStock.create({
+          data: { competitionId: competition.id, stockId: row.stockId, sortOrder: i },
+        });
+      }
+    }
+
+    return competition;
+  });
+
+  await audit(admin.id, "competition.create", "Competition", created.id, null, {
+    slug: created.slug,
+    startDate: created.startDate,
+    endDate: created.endDate,
+  });
+
+  revalidatePath("/admin");
+  revalidatePath("/admin/competition");
+  return {
+    ok: true,
+    message: `${created.name} created as a draft. Add stocks, then open registration when you are ready.`,
+  };
 }
 
 const settingsSchema = z.object({
@@ -358,4 +489,91 @@ export async function adjustPortfolioAction(
     ok: true,
     message: `${formatCents(parsed.data.amountCents)} recorded for ${portfolio.participant.displayName}. Their portfolio is now flagged, and the adjustment is excluded from their return.`,
   };
+}
+
+const windowSchema = z.object({
+  competitionId: z.string().min(1),
+  label: z.string().trim().min(1, "Give the window a name.").max(60),
+  opensAt: z.string().min(1),
+  closesAt: z.string().min(1),
+});
+
+/**
+ * Trading windows.
+ *
+ * Selecting "only during scheduled windows" used to be a trap: the rule was
+ * honoured by the engine and nothing could create a window, so choosing it
+ * locked every participant out with "none are scheduled". A setting you can
+ * choose that breaks trading is worse than one that is not offered.
+ */
+export async function createTradingWindowAction(
+  input: z.input<typeof windowSchema>,
+): Promise<ActionResult> {
+  const admin = await requireAdmin();
+  const parsed = windowSchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "That window is not valid." };
+  }
+
+  const opensAt = new Date(parsed.data.opensAt);
+  const closesAt = new Date(parsed.data.closesAt);
+  if (Number.isNaN(opensAt.getTime()) || Number.isNaN(closesAt.getTime())) {
+    return { ok: false, error: "Those are not valid dates and times." };
+  }
+  if (closesAt <= opensAt) {
+    return { ok: false, error: "A window has to close after it opens." };
+  }
+
+  const overlapping = await db.tradingWindow.findFirst({
+    where: {
+      competitionId: parsed.data.competitionId,
+      isActive: true,
+      opensAt: { lt: closesAt },
+      closesAt: { gt: opensAt },
+    },
+  });
+  if (overlapping) {
+    return {
+      ok: false,
+      error: `That overlaps "${overlapping.label}", which runs from ${overlapping.opensAt.toLocaleString("en-GB")} to ${overlapping.closesAt.toLocaleString("en-GB")}.`,
+    };
+  }
+
+  const created = await db.tradingWindow.create({
+    data: {
+      competitionId: parsed.data.competitionId,
+      label: parsed.data.label,
+      opensAt,
+      closesAt,
+    },
+  });
+
+  await audit(admin.id, "competition.window.create", "TradingWindow", created.id, null, {
+    label: created.label,
+    opensAt: created.opensAt.toISOString(),
+    closesAt: created.closesAt.toISOString(),
+  });
+
+  revalidatePath("/admin/settings");
+  revalidatePath("/rules");
+  return { ok: true, message: `"${created.label}" added.` };
+}
+
+export async function deleteTradingWindowAction(id: string): Promise<ActionResult> {
+  const admin = await requireAdmin();
+  const window = await db.tradingWindow.findUnique({ where: { id } });
+  if (!window) return { ok: false, error: "That window no longer exists." };
+
+  // Deactivated rather than deleted: a window that was open when somebody
+  // traded is part of why that trade was allowed, and the audit trail should
+  // still be able to show it.
+  await db.tradingWindow.update({ where: { id }, data: { isActive: false } });
+
+  await audit(admin.id, "competition.window.remove", "TradingWindow", id, window, {
+    isActive: false,
+  });
+
+  revalidatePath("/admin/settings");
+  revalidatePath("/rules");
+  return { ok: true, message: `"${window.label}" removed.` };
 }

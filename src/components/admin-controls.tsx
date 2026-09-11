@@ -439,3 +439,395 @@ export function AdjustPortfolioForm({
     </div>
   );
 }
+
+const STATUSES = [
+  { value: "DRAFT", label: "Draft", what: "Nobody can see or join it." },
+  {
+    value: "REGISTRATION",
+    label: "Registration open",
+    what: "People can join and build portfolios; trading has not started.",
+  },
+  { value: "RUNNING", label: "Running", what: "Trading is open and portfolios are valued daily." },
+  { value: "PAUSED", label: "Paused", what: "Trading is refused; valuations continue." },
+  { value: "ENDED", label: "Ended", what: "Final standings. Portfolios can no longer change." },
+] as const;
+
+export function CompetitionForm({
+  competition,
+  save,
+}: {
+  competition: {
+    id: string;
+    name: string;
+    description: string;
+    status: string;
+    registrationOpen: boolean;
+    startDate: string;
+    endDate: string;
+    hasValuations: boolean;
+  };
+  save: (input: {
+    competitionId: string;
+    name: string;
+    description?: string;
+    status: "DRAFT" | "REGISTRATION" | "RUNNING" | "PAUSED" | "ENDED";
+    registrationOpen: boolean;
+    startDate: string;
+    endDate: string;
+  }) => Promise<ActionResult>;
+}) {
+  const { pending, result, run } = useAction();
+  const [form, setForm] = useState(competition);
+  const set = <K extends keyof typeof form>(k: K, v: (typeof form)[K]) =>
+    setForm((f) => ({ ...f, [k]: v }));
+  const current = STATUSES.find((s) => s.value === form.status);
+
+  return (
+    <div>
+      <form
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          run(() =>
+            save({
+              competitionId: competition.id,
+              name: form.name,
+              description: form.description || undefined,
+              status: form.status as "RUNNING",
+              registrationOpen: form.registrationOpen,
+              startDate: form.startDate,
+              endDate: form.endDate,
+            }),
+          );
+        }}
+      >
+        <Field label="Name">
+          <Input value={form.name} onChange={(e) => set("name", e.target.value)} required />
+        </Field>
+
+        <Field label="Description" hint="Shown on the landing page and the competition page.">
+          <textarea
+            value={form.description}
+            onChange={(e) => set("description", e.target.value)}
+            rows={2}
+            maxLength={500}
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm"
+          />
+        </Field>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field
+            label="Starts"
+            hint={
+              competition.hasValuations
+                ? "Locked — portfolios have already been valued against this date."
+                : undefined
+            }
+          >
+            <Input
+              type="date"
+              value={form.startDate}
+              onChange={(e) => set("startDate", e.target.value)}
+              disabled={competition.hasValuations}
+              required
+            />
+          </Field>
+          <Field label="Ends">
+            <Input
+              type="date"
+              value={form.endDate}
+              onChange={(e) => set("endDate", e.target.value)}
+              required
+            />
+          </Field>
+        </div>
+
+        <Field label="Status">
+          <select
+            value={form.status}
+            onChange={(e) => set("status", e.target.value)}
+            className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm"
+          >
+            {STATUSES.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {current ? <p className="-mt-2 text-xs text-[var(--text-muted)]">{current.what}</p> : null}
+
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={form.registrationOpen}
+            onChange={(e) => set("registrationOpen", e.target.checked)}
+            className="size-4 accent-accent-600"
+          />
+          Accept new participants
+        </label>
+        <p className="-mt-2 text-xs text-[var(--text-muted)]">
+          Registering an account always works; this controls whether it joins this competition.
+          Closing it mid-competition stops late entries without locking anybody out.
+        </p>
+
+        <Button type="submit" disabled={pending}>
+          {pending ? "Saving…" : "Save competition"}
+        </Button>
+      </form>
+      <Feedback result={result} />
+    </div>
+  );
+}
+
+export function CreateCompetitionForm({
+  copyStocksFrom,
+  create,
+}: {
+  copyStocksFrom?: { id: string; name: string; stockCount: number };
+  create: (input: {
+    name: string;
+    slug: string;
+    description?: string;
+    startDate: string;
+    endDate: string;
+    startingCapitalEuros: number;
+    timezone: string;
+    copyStocksFrom?: string;
+  }) => Promise<ActionResult>;
+}) {
+  const { pending, result, run } = useAction();
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [capital, setCapital] = useState(100_000);
+  const [copyStocks, setCopyStocks] = useState(true);
+
+  const slugify = (v: string) =>
+    v
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 50);
+
+  return (
+    <div>
+      <form
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          run(async () => {
+            const r = await create({
+              name,
+              slug: slug || slugify(name),
+              startDate,
+              endDate,
+              startingCapitalEuros: capital,
+              timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Berlin",
+              ...(copyStocks && copyStocksFrom ? { copyStocksFrom: copyStocksFrom.id } : {}),
+            });
+            if (r.ok) {
+              setName("");
+              setSlug("");
+            }
+            return r;
+          });
+        }}
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Name">
+            <Input
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (!slug) setSlug("");
+              }}
+              placeholder="Spring 2027 Stock Challenge"
+              required
+            />
+          </Field>
+          <Field label="Address" hint="Used in links. Letters, numbers and hyphens.">
+            <Input
+              value={slug}
+              onChange={(e) => setSlug(slugify(e.target.value))}
+              placeholder={slugify(name) || "spring-2027"}
+            />
+          </Field>
+          <Field label="Starts">
+            <Input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              required
+            />
+          </Field>
+          <Field label="Ends">
+            <Input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              required
+            />
+          </Field>
+          <Field label="Starting capital (€ per person)">
+            <Input
+              type="number"
+              min={1}
+              step={1000}
+              value={capital}
+              onChange={(e) => setCapital(Number(e.target.value))}
+              required
+            />
+          </Field>
+        </div>
+
+        {copyStocksFrom ? (
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={copyStocks}
+              onChange={(e) => setCopyStocks(e.target.checked)}
+              className="size-4 accent-accent-600"
+            />
+            Copy the {copyStocksFrom.stockCount} stocks from {copyStocksFrom.name}
+          </label>
+        ) : null}
+
+        <p className="text-xs text-[var(--text-muted)]">
+          Created as a draft with default rules and nobody able to join. Add or adjust stocks, set
+          the rules, then open registration.
+        </p>
+
+        <Button type="submit" disabled={pending || !name || !startDate || !endDate}>
+          {pending ? "Creating…" : "Create competition"}
+        </Button>
+      </form>
+      <Feedback result={result} />
+    </div>
+  );
+}
+
+export function TradingWindows({
+  competitionId,
+  windows,
+  mode,
+  create,
+  remove,
+}: {
+  competitionId: string;
+  windows: { id: string; label: string; opensAt: string; closesAt: string; isOpenNow: boolean }[];
+  mode: string;
+  create: (input: {
+    competitionId: string;
+    label: string;
+    opensAt: string;
+    closesAt: string;
+  }) => Promise<ActionResult>;
+  remove: (id: string) => Promise<ActionResult>;
+}) {
+  const { pending, result, run } = useAction();
+  const [label, setLabel] = useState("");
+  const [opensAt, setOpensAt] = useState("");
+  const [closesAt, setClosesAt] = useState("");
+
+  const relevant = mode === "WINDOWS";
+
+  return (
+    <div>
+      {relevant && windows.length === 0 ? (
+        <div className="mb-4">
+          <Alert>
+            Trading is set to windows only and none are scheduled, so{" "}
+            <strong>nobody can trade at all</strong>. Add one below, or change the mode above.
+          </Alert>
+        </div>
+      ) : null}
+
+      {!relevant ? (
+        <p className="mb-4 text-sm text-[var(--text-muted)]">
+          These only take effect when the trading mode is “only during scheduled windows”. They are
+          kept either way, so switching to that mode does not lose them.
+        </p>
+      ) : null}
+
+      {windows.length > 0 ? (
+        <ul className="mb-4 divide-y divide-[var(--border)]">
+          {windows.map((w) => (
+            <li key={w.id} className="flex items-center justify-between gap-3 py-2.5 first:pt-0">
+              <div>
+                <span className="text-sm font-medium">{w.label}</span>
+                {w.isOpenNow ? (
+                  <span className="ml-2 rounded bg-up-50 px-1.5 py-0.5 text-xs font-medium text-up-700">
+                    open now
+                  </span>
+                ) : null}
+                <div className="tnum text-xs text-[var(--text-muted)]">
+                  {w.opensAt} → {w.closesAt}
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => run(() => remove(w.id))}
+                className="text-xs font-medium text-down-600 hover:text-down-700"
+              >
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      <form
+        className="grid gap-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end"
+        onSubmit={(e) => {
+          e.preventDefault();
+          run(async () => {
+            const r = await create({ competitionId, label, opensAt, closesAt });
+            if (r.ok) {
+              setLabel("");
+              setOpensAt("");
+              setClosesAt("");
+            }
+            return r;
+          });
+        }}
+      >
+        <Field label="Name">
+          <Input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="Monday morning"
+            required
+            maxLength={60}
+          />
+        </Field>
+        <Field label="Opens">
+          <Input
+            type="datetime-local"
+            value={opensAt}
+            onChange={(e) => setOpensAt(e.target.value)}
+            required
+          />
+        </Field>
+        <Field label="Closes">
+          <Input
+            type="datetime-local"
+            value={closesAt}
+            onChange={(e) => setClosesAt(e.target.value)}
+            required
+          />
+        </Field>
+        <Button
+          type="submit"
+          variant="secondary"
+          disabled={pending || !label || !opensAt || !closesAt}
+        >
+          Add window
+        </Button>
+      </form>
+      <Feedback result={result} />
+    </div>
+  );
+}

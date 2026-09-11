@@ -14,10 +14,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         unreadCount={unreadCount}
         links={[
           { href: "/admin", label: "Overview" },
+          { href: "/admin/competition", label: "Competition" },
           { href: "/admin/participants", label: "Participants" },
           { href: "/admin/stocks", label: "Stocks" },
           { href: "/admin/leaderboard", label: "Leaderboard" },
           { href: "/admin/reports", label: "Reports" },
+          { href: "/admin/backups", label: "Backups" },
           { href: "/dashboard", label: "My portfolio" },
         ]}
       />

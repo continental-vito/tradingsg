@@ -152,6 +152,7 @@ model Competition {
   valuations     PortfolioValuation[]
   snapshots      LeaderboardSnapshot[]
   reports        WeeklyReport[]
+  exports        DataExport[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -985,6 +986,42 @@ model JobRun {
   @@unique([jobName, runKey])
   @@index([jobName, startedAt])
   @@index([status, heartbeatAt])
+}
+
+/**
+ * A generated CSV backup, kept in the database rather than on disk.
+ *
+ * On disk it would not survive a deployment — the platforms this runs on have
+ * an ephemeral filesystem — and a backup that disappears when you most need it
+ * is not a backup. A day of exports for a hundred people is a few hundred
+ * kilobytes of text, so the cost of keeping them here is nothing next to the
+ * cost of losing them.
+ *
+ * Unique on (competitionId, asOfDate, kind) so the daily job is idempotent:
+ * running it twice rewrites the same row rather than accumulating duplicates.
+ */
+model DataExport {
+  id            String      @id @default(cuid())
+  competitionId String
+  competition   Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  asOfDate String // "YYYY-MM-DD"
+  // ExportKind: participants | holdings | transactions | prices
+  kind     String
+  filename String
+
+  content  String // the CSV itself
+  rowCount Int    @default(0)
+  byteSize Int    @default(0)
+  checksum String // sha256 of the content, so a download can be verified
+
+  // CRON when written by the daily job, ADMIN when requested from the page.
+  triggeredBy String @default("CRON")
+
+  createdAt DateTime @default(now())
+
+  @@unique([competitionId, asOfDate, kind])
+  @@index([competitionId, asOfDate])
 }
 
 model AuditLog {

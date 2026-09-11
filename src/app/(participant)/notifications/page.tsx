@@ -64,7 +64,7 @@ export default async function NotificationsPage() {
       orderBy: [{ readAt: "asc" }, { createdAt: "desc" }],
       take: 100,
     }),
-    db.notificationPreference.findMany({ where: { userId: user.id, channel: "IN_APP" } }),
+    db.notificationPreference.findMany({ where: { userId: user.id } }),
     db.participant.findFirst({
       where: { userId: user.id, deletedAt: null },
       orderBy: { joinedAt: "desc" },
@@ -79,7 +79,12 @@ export default async function NotificationsPage() {
   ]);
 
   const settings = participant?.competition.settings[0];
-  const disabledByUser = new Map(prefs.map((p) => [p.type, p.enabled]));
+  const byChannel = new Map(prefs.map((p) => [`${p.type}:${p.channel}`, p.enabled]));
+
+  // Only the weekly report is ever sent by email, so it is the only type that
+  // gets a live email toggle — offering one that can never fire is a promise
+  // the app cannot keep.
+  const EMAILED = new Set(["WEEKLY_REPORT"]);
 
   const available = TYPES.filter(
     (t) => settings?.[t.setting as keyof typeof settings] === true,
@@ -87,7 +92,8 @@ export default async function NotificationsPage() {
     type: t.type,
     label: t.label,
     description: t.description,
-    enabled: disabledByUser.get(t.type) ?? true,
+    inApp: byChannel.get(`${t.type}:IN_APP`) ?? true,
+    email: EMAILED.has(t.type) ? (byChannel.get(`${t.type}:EMAIL`) ?? true) : null,
   }));
 
   return (
@@ -123,6 +129,10 @@ export default async function NotificationsPage() {
 
       <Card>
         <h2 className="text-sm font-medium">What to notify me about</h2>
+        <p className="mt-1 text-xs text-[var(--text-muted)]">
+          &ldquo;Here&rdquo; is this page. &ldquo;Email&rdquo; stops the message reaching your inbox
+          — turning it off for the weekly report means the report is not sent to you at all.
+        </p>
         {available.length === 0 ? (
           <p className="mt-2 text-sm text-[var(--text-muted)]">
             The competition administrator has not enabled any notifications.

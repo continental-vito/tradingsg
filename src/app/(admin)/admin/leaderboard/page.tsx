@@ -113,6 +113,64 @@ export default async function AdminLeaderboardPage() {
           </Card>
 
           <Card className="overflow-hidden p-0">
+            <div className="px-5 py-4">
+              <h2 className="text-sm font-medium text-[var(--text-muted)]">Ranking evolution</h2>
+              <p className="mt-1 text-xs text-[var(--text-muted)]">
+                The same weekly snapshots as the chart, as positions. A dash is a week the
+                participant was not ranked — usually because they had not invested yet.
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[560px] text-sm">
+                <thead>
+                  <tr className="border-y border-[var(--border)] text-left text-xs text-[var(--text-muted)]">
+                    <th className="px-5 py-2.5 font-medium">Participant</th>
+                    {weekly.map((w, i) => (
+                      <th key={w.id} className="px-3 py-2.5 text-right font-medium">
+                        {i === weekly.length - 1 ? "Current" : `Wk ${i + 1}`}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {series.map((row) => (
+                    <tr
+                      key={row.participantId}
+                      className="border-b border-[var(--border)] last:border-0"
+                    >
+                      <td className="px-5 py-2.5 font-medium">{row.name}</td>
+                      {row.points.map((point, i) => {
+                        const previous = row.points[i - 1]?.rank ?? null;
+                        const moved =
+                          previous !== null && point.rank !== null ? previous - point.rank : null;
+                        return (
+                          <td key={point.date} className="tnum px-3 py-2.5 text-right">
+                            {point.rank === null ? (
+                              <span className="text-[var(--text-muted)]">—</span>
+                            ) : (
+                              <span
+                                className={
+                                  moved && moved > 0
+                                    ? "text-up-600"
+                                    : moved && moved < 0
+                                      ? "text-down-600"
+                                      : ""
+                                }
+                              >
+                                #{point.rank}
+                              </span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
+          <Card className="overflow-hidden p-0">
             <h2 className="px-5 py-4 text-sm font-medium text-[var(--text-muted)]">
               Snapshot history
             </h2>

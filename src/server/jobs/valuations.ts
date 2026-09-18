@@ -29,6 +29,15 @@ export async function snapshotValuations(
   const { db, log } = ctx;
   const { competitionId, asOfDate } = args;
 
+  // Read rather than assumed: the staleness limit is a configurable rule, and
+  // the ladder was using a hardcoded seven days regardless of what was set.
+  const settings = await db.competitionSettings.findFirst({
+    where: { competitionId, supersededAt: null },
+    orderBy: { revision: "desc" },
+    select: { maxPriceStalenessDays: true },
+  });
+  const maxStalenessDays = settings?.maxPriceStalenessDays ?? 7;
+
   const portfolios = await db.portfolio.findMany({
     where: { competitionId, participant: { deletedAt: null } },
     include: {
@@ -49,6 +58,7 @@ export async function snapshotValuations(
     const stockIds = portfolio.holdings.filter((h) => h.microShares > 0n).map((h) => h.stockId);
 
     const book = await buildPriceBook(db, stockIds, asOfDate, {
+      maxStalenessDays,
       costBasisFallback: new Map(
         portfolio.holdings.map((h) => [
           h.stockId,

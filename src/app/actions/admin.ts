@@ -2,11 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { dateKeyOf } from "@/lib/dates";
 import { requireAdmin } from "@/server/auth/guard";
 import { revokeAllSessions } from "@/server/auth/session";
+import { auditJson } from "@/server/audit";
 import { db } from "@/server/db";
 import { formatCents } from "@/server/money";
 import { applyAdjustment } from "@/server/portfolio/adjust";
+import { liquidateStock, LiquidationError } from "@/server/portfolio/liquidate";
 
 /**
  * Administrative mutations.
@@ -41,8 +44,8 @@ async function audit(
       action,
       entityType,
       entityId,
-      beforeJson: before === undefined ? null : JSON.stringify(before),
-      afterJson: after === undefined ? null : JSON.stringify(after),
+      beforeJson: auditJson(before),
+      afterJson: auditJson(after),
     },
   });
 }
@@ -224,20 +227,73 @@ export async function createCompetitionAction(
 
 const settingsSchema = z.object({
   competitionId: z.string().min(1),
+
+  // Trading
   tradingMode: z.enum(["ANYTIME", "ONCE_PER_PERIOD", "WINDOWS", "LOCKED"]),
+  periodUnit: z.enum(["DAY", "WEEK", "MONTH"]),
   maxChangesPerPeriod: z.coerce.number().int().min(1).max(50),
-  maxPositionPct: z.coerce.number().min(1).max(100),
+  lockAfterDate: z.string().regex(DATE).or(z.literal("")).optional(),
+  allowTradingBeforeStart: z.boolean(),
+
+  // Position limits
+  maxPositionPct: z.coerce.number().min(0.1).max(100),
   minPositionPct: z.coerce.number().min(0).max(100),
+  minPositionEuros: z.coerce.number().min(0).max(10_000_000),
+  minPositions: z.coerce.number().int().min(0).max(50),
+  maxPositions: z.coerce.number().int().min(0).max(50),
   allowCash: z.boolean(),
+  minCashPct: z.coerce.number().min(0).max(100),
+  maxCashPct: z.coerce.number().min(0).max(100),
+
+  // Granularity and dust
   allowFractionalShares: z.boolean(),
+  minTradeEuros: z.coerce.number().min(0).max(1_000_000),
+  minTradeShares: z.coerce.number().min(0).max(1000),
+  cashToleranceEuros: z.coerce.number().min(0).max(10_000),
+
+  // Fees
   feeBps: z.coerce.number().int().min(0).max(1000),
+  feeFlatEuros: z.coerce.number().min(0).max(10_000),
+  feeMinEuros: z.coerce.number().min(0).max(10_000),
+  feeMaxEuros: z.coerce.number().min(0).max(10_000).optional(),
+
+  // Pricing
+  priceMode: z.enum(["LAST_CLOSE", "LIVE"]),
+  maxPriceStalenessDays: z.coerce.number().int().min(1).max(365),
+  maxQuoteAgeSeconds: z.coerce.number().int().min(30).max(86_400),
+
+  // Explicitly off, and read by the invariant checker
+  allowShort: z.boolean(),
+  allowNegativeCash: z.boolean(),
+
+  // Visibility and comms
+  weeklyReportEnabled: z.boolean(),
+  leaderboardVisibility: z.enum(["ALL", "TOP_N", "ADMIN_ONLY"]),
+  leaderboardTopN: z.coerce.number().int().min(1).max(500).optional(),
+  showOthersHoldings: z.boolean(),
+
+  notifyCompetitionStart: z.boolean(),
+  notifySetupDeadline: z.boolean(),
+  notifyWeeklyReport: z.boolean(),
+  notifyEnteredTopThree: z.boolean(),
+  notifyOvertaken: z.boolean(),
+  notifyCompetitionEnd: z.boolean(),
 });
+
+const euros = (value: number): bigint => BigInt(Math.round(value * 100));
+const ppm = (pct: number): number => Math.round(pct * 10_000);
 
 /**
  * Rule changes write a NEW settings revision and supersede the old one, rather
  * than editing in place. A rebalance committed in week two can then still be
  * re-validated against the rules that were live in week two — tightening a cap
  * retroactively must not make historical portfolios look illegal.
+ *
+ * Every field the engine reads is settable here. Anything that could only be
+ * changed by editing the database was a rule the software enforced and nobody
+ * could adjust, and several of them were shown to participants on the rules
+ * page — which made that page a description of settings its reader's
+ * administrator had no way to reach.
  */
 export async function updateSettingsAction(
   input: z.input<typeof settingsSchema>,
@@ -245,15 +301,44 @@ export async function updateSettingsAction(
   const admin = await requireAdmin();
   const parsed = settingsSchema.safeParse(input);
   if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? "Those rules are not valid." };
+    const issue = parsed.error.issues[0];
+    return {
+      ok: false,
+      error: issue
+        ? `${issue.path.join(".") || "value"}: ${issue.message}`
+        : "Those rules are not valid.",
+    };
   }
   const d = parsed.data;
 
   if (d.minPositionPct > d.maxPositionPct) {
     return {
       ok: false,
-      error: `The minimum position (${d.minPositionPct}%) cannot exceed the maximum (${d.maxPositionPct}%).`,
+      error: `The smallest position (${d.minPositionPct}%) cannot exceed the largest (${d.maxPositionPct}%).`,
     };
+  }
+  if (d.minCashPct > d.maxCashPct) {
+    return {
+      ok: false,
+      error: `The minimum cash (${d.minCashPct}%) cannot exceed the maximum (${d.maxCashPct}%).`,
+    };
+  }
+  if (d.maxPositions > 0 && d.minPositions > d.maxPositions) {
+    return {
+      ok: false,
+      error: `The minimum number of stocks (${d.minPositions}) cannot exceed the maximum (${d.maxPositions}).`,
+    };
+  }
+  // A cap that cannot fill the portfolio makes every allocation impossible, and
+  // the participant would only find out when their first preview was refused.
+  if (d.maxPositions > 0 && d.maxPositions * d.maxPositionPct < 100 && !d.allowCash) {
+    return {
+      ok: false,
+      error: `At most ${d.maxPositions} stocks capped at ${d.maxPositionPct}% each can only reach ${(d.maxPositions * d.maxPositionPct).toFixed(0)}% of a portfolio, and cash is not allowed — nobody could submit a valid allocation.`,
+    };
+  }
+  if (d.leaderboardVisibility === "TOP_N" && !d.leaderboardTopN) {
+    return { ok: false, error: "Say how many places to show." };
   }
 
   const current = await db.competitionSettings.findFirst({
@@ -273,14 +358,59 @@ export async function updateSettingsAction(
         revision: current.revision + 1,
         effectiveFrom: new Date(),
         supersededAt: null,
+
         tradingMode: d.tradingMode,
+        periodUnit: d.periodUnit,
         maxChangesPerPeriod: d.maxChangesPerPeriod,
-        maxPositionPpm: Math.round(d.maxPositionPct * 10_000),
-        minPositionPpm: Math.round(d.minPositionPct * 10_000),
+        lockAfterDate: d.lockAfterDate || null,
+        allowTradingBeforeStart: d.allowTradingBeforeStart,
+
+        maxPositionPpm: ppm(d.maxPositionPct),
+        minPositionPpm: ppm(d.minPositionPct),
+        minPositionCents: euros(d.minPositionEuros),
+        minPositions: d.minPositions,
+        maxPositions: d.maxPositions > 0 ? d.maxPositions : null,
         allowCash: d.allowCash,
+        minCashPpm: ppm(d.minCashPct),
+        maxCashPpm: ppm(d.maxCashPct),
+
         allowFractionalShares: d.allowFractionalShares,
+        minTradeValueCents: euros(d.minTradeEuros),
+        // Micro-shares: 1 share = 1_000_000.
+        minTradeMicroShares: BigInt(Math.round(d.minTradeShares * 1_000_000)),
+        cashToleranceCents: euros(d.cashToleranceEuros),
+
         feeBps: d.feeBps,
-        feeModel: d.feeBps > 0 ? "PERCENT" : "NONE",
+        feeFlatCents: euros(d.feeFlatEuros),
+        feeMinCents: euros(d.feeMinEuros),
+        feeMaxCents: d.feeMaxEuros ? euros(d.feeMaxEuros) : null,
+        feeModel:
+          d.feeBps === 0 && d.feeFlatEuros === 0
+            ? "NONE"
+            : d.feeMinEuros > 0
+              ? "PERCENT_WITH_MIN"
+              : d.feeBps === 0
+                ? "FLAT"
+                : "PERCENT",
+
+        priceMode: d.priceMode,
+        maxPriceStalenessDays: d.maxPriceStalenessDays,
+        maxQuoteAgeSeconds: d.maxQuoteAgeSeconds,
+
+        allowShort: d.allowShort,
+        allowNegativeCash: d.allowNegativeCash,
+
+        weeklyReportEnabled: d.weeklyReportEnabled,
+        leaderboardVisibility: d.leaderboardVisibility,
+        leaderboardTopN: d.leaderboardVisibility === "TOP_N" ? (d.leaderboardTopN ?? null) : null,
+        showOthersHoldings: d.showOthersHoldings,
+
+        notifyCompetitionStart: d.notifyCompetitionStart,
+        notifySetupDeadline: d.notifySetupDeadline,
+        notifyWeeklyReport: d.notifyWeeklyReport,
+        notifyEnteredTopThree: d.notifyEnteredTopThree,
+        notifyOvertaken: d.notifyOvertaken,
+        notifyCompetitionEnd: d.notifyCompetitionEnd,
       },
     });
   });
@@ -296,6 +426,7 @@ export async function updateSettingsAction(
 
   revalidatePath("/admin/settings");
   revalidatePath("/rules");
+  revalidatePath("/leaderboard");
   return { ok: true, message: `Rules saved as revision ${next.revision}.` };
 }
 
@@ -576,4 +707,51 @@ export async function deleteTradingWindowAction(id: string): Promise<ActionResul
   revalidatePath("/admin/settings");
   revalidatePath("/rules");
   return { ok: true, message: `"${window.label}" removed.` };
+}
+
+/**
+ * Force-liquidates a stock that has stopped pricing.
+ *
+ * Without this, a delisted name has its last close carried forward for the rest
+ * of the competition — everyone holding it frozen at a price that no longer
+ * means anything, and the ranking increasingly reflecting a number nobody could
+ * trade at.
+ */
+export async function liquidateStockAction(
+  competitionId: string,
+  stockId: string,
+): Promise<ActionResult> {
+  const admin = await requireAdmin();
+
+  const competition = await db.competition.findUnique({
+    where: { id: competitionId },
+    select: { timezone: true },
+  });
+  if (!competition) return { ok: false, error: "That competition no longer exists." };
+
+  try {
+    const result = await liquidateStock(db, {
+      competitionId,
+      stockId,
+      asOfDate: dateKeyOf(new Date(), competition.timezone),
+      reason: "Liquidated by an administrator at the last available close",
+    });
+
+    await audit(admin.id, "stock.liquidate", "Stock", stockId, null, {
+      symbol: result.symbol,
+      priceCents: result.priceCents.toString(),
+      tradeDate: result.tradeDate,
+      holders: result.holdersLiquidated,
+    });
+
+    revalidatePath("/admin/stocks");
+    revalidatePath("/leaderboard");
+    return {
+      ok: true,
+      message: `${result.symbol} sold for ${result.holdersLiquidated} participant${result.holdersLiquidated === 1 ? "" : "s"} at ${formatCents(result.priceCents)} — its last close, on ${result.tradeDate}. No fee was charged, and it can no longer be bought.`,
+    };
+  } catch (error: unknown) {
+    if (error instanceof LiquidationError) return { ok: false, error: error.message };
+    throw error;
+  }
 }

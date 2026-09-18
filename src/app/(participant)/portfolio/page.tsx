@@ -67,8 +67,8 @@ export default async function PortfolioPage() {
 
       {headline.isLive && holdings.length > 0 ? (
         <Alert tone="info">
-          Priced live from the latest available close, because you have traded since the last
-          valuation. Your position on the leaderboard updates when tonight&rsquo;s valuation runs.
+          Priced live from the latest available price. Your position on the leaderboard updates when
+          tonight&rsquo;s valuation runs.
         </Alert>
       ) : null}
 

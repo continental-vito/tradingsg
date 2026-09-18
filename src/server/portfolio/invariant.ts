@@ -44,7 +44,7 @@ export class InvariantError extends Error {
   }
 }
 
-type Tx = Pick<PrismaClient, "portfolio" | "holding" | "transaction">;
+type Tx = Pick<PrismaClient, "portfolio" | "holding" | "transaction" | "competitionSettings">;
 
 export async function checkPortfolioInvariants(
   tx: Tx,
@@ -141,7 +141,18 @@ export async function checkPortfolioInvariants(
   }
 
   // (G) and (H): no shorting, no overdraft, unless deliberately configured.
-  if (portfolio.cashCents < 0n) {
+  // The settings are read rather than assumed — they were documented as "so the
+  // invariant checker has something to read" and then never read, which made
+  // the columns decoration.
+  const settings = await tx.competitionSettings.findFirst({
+    where: { competitionId: portfolio.competitionId, supersededAt: null },
+    orderBy: { revision: "desc" },
+    select: { allowShort: true, allowNegativeCash: true },
+  });
+  const allowShort = settings?.allowShort ?? false;
+  const allowNegativeCash = settings?.allowNegativeCash ?? false;
+
+  if (!allowNegativeCash && portfolio.cashCents < 0n) {
     violations.push({
       code: "NEGATIVE_CASH",
       portfolioId,
@@ -150,7 +161,7 @@ export async function checkPortfolioInvariants(
     });
   }
   for (const holding of holdings) {
-    if (holding.microShares < 0n) {
+    if (!allowShort && holding.microShares < 0n) {
       violations.push({
         code: "NEGATIVE_SHARES",
         portfolioId,

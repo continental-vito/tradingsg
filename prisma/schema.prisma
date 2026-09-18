@@ -228,6 +228,9 @@ model CompetitionSettings {
   weeklyReportEnabled   Boolean @default(true)
   leaderboardVisibility String  @default("ALL") // ALL | TOP_N | ADMIN_ONLY
   leaderboardTopN       Int?
+  // Whether participants can open each other's portfolios from the leaderboard.
+  // Some competitions want the transparency and some do not, so it is a choice
+  // rather than a default.
   showOthersHoldings    Boolean @default(false)
 
   notifyCompetitionStart Boolean @default(true)

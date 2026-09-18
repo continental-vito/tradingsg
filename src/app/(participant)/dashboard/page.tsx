@@ -116,9 +116,9 @@ export default async function DashboardPage() {
             <>Valued at the close on {headline.asOfDate}, using the same prices for everyone.</>
           ) : (
             <>
-              Priced live from the latest available close, because you have traded since the last
-              valuation. The leaderboard still shows the last committed standings, so this figure
-              may be ahead of your ranking until tonight&rsquo;s valuation runs.
+              Priced live from the latest available price. The leaderboard shows the last committed
+              standings, so this figure may be ahead of your ranking until tonight&rsquo;s valuation
+              runs.
             </>
           )}
         </p>

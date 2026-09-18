@@ -51,7 +51,10 @@ Being explicit about this is cheaper than rediscovering it during a demo.
   client that handles the cookie and crumb handshake. Fine for one daily job
   over a few dozen symbols, and it can break without notice — which is why the
   provider sits behind an interface and `mock` still works offline.
-- **A delisted stock has no defined policy yet.** If a name stops pricing
-  mid-competition, the valuation ladder carries its last close forward
-  indefinitely and flags the valuation `DEGRADED`. Force-liquidation at the last
-  known close is the intended eventual behaviour.
+- **A delisted stock is liquidated, not frozen.** If a name stops pricing for
+  longer than the competition's staleness limit, the admin stocks page flags it
+  and offers to sell the position for every holder at the last close that did
+  exist — same price for everyone, no fee, recorded as an ordinary ledger entry
+  so the reconciliation invariants apply to it exactly as to a real sale. It is
+  a deliberate action rather than an automatic one, because deciding a stock is
+  gone is a judgement, not a threshold.

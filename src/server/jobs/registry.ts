@@ -4,6 +4,7 @@ import { backfillPrices, missingTradingDays, refreshQuoteCache } from "./prices"
 import { snapshotLeaderboard } from "./leaderboard";
 import { snapshotValuations } from "./valuations";
 import { runNotifications } from "./notifications";
+import { runHousekeeping } from "./housekeeping";
 import { pruneExports, storeExports } from "@/server/backup/export";
 import { buildWeeklyReport } from "@/server/reports/generate";
 import { sendWeeklyReport } from "@/server/reports/send";
@@ -387,6 +388,30 @@ export const JOBS: JobDefinition[] = [
         );
       }
       return outcomes;
+    },
+  },
+
+  {
+    name: "housekeeping",
+    description: "Delete expired sessions, tokens, notifications and old job history.",
+    cron: "30 3 * * *",
+    runKeyFor: (now, tz) => dateKeyOf(now, tz),
+    run: async (db, args) => {
+      const now = args.now ?? new Date();
+      // Not per-competition: sessions and tokens belong to accounts, not to a
+      // competition, and running it once is enough.
+      return [
+        await runJob(
+          db,
+          {
+            jobName: "housekeeping",
+            runKey: dateKeyOf(now, "UTC"),
+            triggeredBy: args.triggeredBy,
+            force: args.force,
+          },
+          (ctx) => runHousekeeping(ctx),
+        ),
+      ];
     },
   },
 ];

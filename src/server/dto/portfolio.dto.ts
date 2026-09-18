@@ -100,7 +100,11 @@ export async function loadDashboard(userId: string): Promise<DashboardDto | null
     where: { userId, deletedAt: null },
     orderBy: { joinedAt: "desc" },
     include: {
-      competition: true,
+      competition: {
+        include: {
+          settings: { where: { supersededAt: null }, orderBy: { revision: "desc" }, take: 1 },
+        },
+      },
       portfolio: { include: { holdings: { include: { stock: true } } } },
     },
   });
@@ -130,8 +134,19 @@ export async function loadDashboard(userId: string): Promise<DashboardDto | null
   const rebalancedOn = portfolio.lastRebalancedAt
     ? dateKeyOf(portfolio.lastRebalancedAt, competition.timezone)
     : null;
+
+  // LIVE means the participant's OWN figures track the latest available price
+  // rather than waiting for the nightly valuation. The setting existed and was
+  // described on the rules page while nothing read it; the live path already
+  // exists because a fresh rebalance needs it, so honouring the setting is a
+  // matter of choosing that path deliberately rather than only as a fallback.
+  //
+  // The leaderboard is untouched either way — it reads committed snapshots, so
+  // two people comparing standings still see identical numbers.
+  const wantsLive = competition.settings[0]?.priceMode === "LIVE";
+
   const committedIsCurrent =
-    latest !== null && (rebalancedOn === null || latest.asOfDate >= rebalancedOn);
+    !wantsLive && latest !== null && (rebalancedOn === null || latest.asOfDate >= rebalancedOn);
 
   let currentValueCents: bigint;
   let cashCents: bigint;

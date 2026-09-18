@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
-import { addStockAction, removeStockAction } from "@/app/actions/admin";
-import { AddStockForm, RemoveStockButton } from "@/components/admin-controls";
+import { addStockAction, liquidateStockAction, removeStockAction } from "@/app/actions/admin";
+import { AddStockForm, LiquidateStockButton, RemoveStockButton } from "@/components/admin-controls";
 import { Alert, Card, EmptyState } from "@/components/ui";
 import { requireAdmin } from "@/server/auth/guard";
 import { db } from "@/server/db";
+import { dateKeyOf } from "@/lib/dates";
+import { findStalePricedStocks } from "@/server/portfolio/liquidate";
 import { formatCents } from "@/server/money";
 
 export const metadata: Metadata = { title: "Stocks" };
@@ -32,6 +34,22 @@ export default async function AdminStocksPage() {
     },
   });
 
+  const settings = await db.competitionSettings.findFirst({
+    where: { competitionId: competition.id, supersededAt: null },
+    orderBy: { revision: "desc" },
+    select: { maxPriceStalenessDays: true },
+  });
+  // Held stocks that have stopped pricing. Left alone their last close is
+  // carried forward for the rest of the competition, freezing every holder at a
+  // price that no longer means anything.
+  const stale = await findStalePricedStocks(
+    db,
+    competition.id,
+    dateKeyOf(new Date(), competition.timezone),
+    settings?.maxPriceStalenessDays ?? 7,
+  );
+  const staleById = new Map(stale.map((s) => [s.stockId, s]));
+
   const active = universe.filter((u) => u.removedAt === null);
   const removed = universe.filter((u) => u.removedAt !== null);
   const unpriced = active.filter((u) => u.stock.lastPriceCents === null);
@@ -45,6 +63,17 @@ export default async function AdminStocksPage() {
           {removed.length > 0 ? ` · ${removed.length} removed` : ""}
         </p>
       </div>
+
+      {stale.length > 0 ? (
+        <Alert>
+          <strong>
+            {stale.length} held stock{stale.length === 1 ? " has" : "s have"} stopped pricing.
+          </strong>{" "}
+          {stale.map((s) => `${s.symbol} (${s.ageDays} days)`).join(", ")}. Their last close is
+          being carried forward, which freezes every holder at a price that no longer means
+          anything. Liquidating sells the position for everyone at that last close, without a fee.
+        </Alert>
+      ) : null}
 
       {unpriced.length > 0 ? (
         <Alert tone="info">
@@ -105,7 +134,17 @@ export default async function AdminStocksPage() {
                   </td>
                   <td className="tnum px-3 py-3 text-right">{u.stock._count.holdings}</td>
                   <td className="px-5 py-3 text-right">
-                    {u.removedAt === null ? (
+                    {u.removedAt === null && staleById.has(u.stockId) ? (
+                      <LiquidateStockButton
+                        competitionId={competition.id}
+                        stockId={u.stockId}
+                        symbol={u.stock.symbol}
+                        holders={u.stock._count.holdings}
+                        lastTradeDate={staleById.get(u.stockId)?.lastTradeDate ?? null}
+                        ageDays={staleById.get(u.stockId)?.ageDays ?? 0}
+                        liquidate={liquidateStockAction}
+                      />
+                    ) : u.removedAt === null ? (
                       <RemoveStockButton
                         competitionId={competition.id}
                         stockId={u.stockId}

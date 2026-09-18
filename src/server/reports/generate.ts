@@ -48,7 +48,19 @@ export interface BuildArgs {
 export async function buildWeeklyReport(db: PrismaClient, args: BuildArgs) {
   const competition = await db.competition.findUniqueOrThrow({
     where: { id: args.competitionId },
+    include: {
+      settings: { where: { supersededAt: null }, orderBy: { revision: "desc" }, take: 1 },
+    },
   });
+
+  // Checked rather than assumed. The setting existed and the report was built
+  // regardless, so turning it off did nothing at all.
+  if (competition.settings[0]?.weeklyReportEnabled === false) {
+    throw new ReportError(
+      `Weekly reports are turned off for ${competition.name}. Enable them in the competition rules first.`,
+      "REPORTS_DISABLED",
+    );
+  }
 
   // The weekly snapshot at or before the date. Read, never computed.
   const snapshot = await db.leaderboardSnapshot.findFirst({

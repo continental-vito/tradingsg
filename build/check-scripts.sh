@@ -109,7 +109,45 @@ check_seam finnhub    src/server/market/finnhub.ts src/server/market/index.ts
 check_seam resend     src/server/email/resend.ts   src/server/email/index.ts
 check_seam nodemailer src/server/email/smtp.ts     src/server/email/index.ts
 
-# 6. The Prisma schema stays portable. A native enum or a @db. annotation
+# 6. Every competition setting is read by something, and changeable by the
+#    administrator. A rule the engine enforces that nobody can adjust is a rule
+#    nobody agreed to, and several of these were already being SHOWN to
+#    participants on the rules page while being unreachable in the admin area.
+if [[ -f prisma/schema.prisma && -f src/app/actions/admin.ts ]]; then
+    unread=""
+    unsettable=""
+    settings_block=$(awk '/^model CompetitionSettings/,/^}/' prisma/schema.prisma)
+    structural="id competitionId revision createdAt updatedAt effectiveFrom supersededAt feeModel timezone"
+
+    while read -r field; do
+        [[ -z "${field}" ]] && continue
+        [[ " ${structural} " == *" ${field} "* ]] && continue
+
+        if ! grep -rql "${field}" --include='*.ts' --include='*.tsx' \
+                --exclude-dir=generated --exclude='*.test.ts' src 2>/dev/null; then
+            unread="${unread} ${field}"
+        fi
+        # Settable either by its own name or via a converted form field, so a
+        # percentage stored as ppm still counts.
+        base="${field%%Ppm}"; base="${base%%Cents}"; base="${base%%MicroShares}"
+        if ! grep -q "${base}" src/app/actions/admin.ts 2>/dev/null; then
+            unsettable="${unsettable} ${field}"
+        fi
+    done < <(echo "${settings_block}" | grep -oE '^  [a-zA-Z]+ +(String|Int|Boolean|BigInt|DateTime)' | awk '{print $1}')
+
+    if [[ -n "${unread}" ]]; then
+        fail "competition settings nothing reads:${unread} — implement them or mark them DEAD"
+    else
+        ok "every competition setting is read by something"
+    fi
+    if [[ -n "${unsettable}" ]]; then
+        fail "competition settings the admin cannot change:${unsettable}"
+    else
+        ok "every competition setting is administrator-changeable"
+    fi
+fi
+
+# 7. The Prisma schema stays portable. A native enum or a @db. annotation
 #    compiles on one provider and fails on the other, and the failure arrives at
 #    deploy time rather than here.
 if grep -qE '^\s*enum\s' prisma/schema.prisma; then
@@ -123,7 +161,7 @@ else
     ok "schema uses no provider-specific type annotations"
 fi
 
-# 7. Money never becomes a float. A Float column in this schema is a silent
+# 8. Money never becomes a float. A Float column in this schema is a silent
 #    rounding bug that only shows up as an unexplained leaderboard position.
 if grep -nE '^\s+\w+\s+Float' prisma/schema.prisma; then
     fail "a Float column exists above — money is BigInt cents and ratios are Int ppm"

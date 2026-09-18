@@ -31,6 +31,16 @@ export interface LeaderboardDto {
   rows: LeaderboardRow[];
   you: LeaderboardRow | null;
   /**
+   * How much of the board this viewer may see. An administrator always sees all
+   * of it — hiding the standings from the person running the competition would
+   * be theatre.
+   */
+  visibility: "ALL" | "TOP_N" | "ADMIN_ONLY";
+  /** Whether rows link through to a participant's holdings. */
+  canOpenPortfolios: boolean;
+  /** Set when the list was cut short, so the page can say so rather than imply the rest do not exist. */
+  hiddenCount: number;
+  /**
    * True when the caller is in the competition but not in this snapshot —
    * they joined after it was taken. Without this the leaderboard simply omits
    * them, and a new joiner cannot tell whether they are missing or broken.
@@ -53,11 +63,23 @@ export async function loadLeaderboard(
   const participant = await db.participant.findFirst({
     where: { userId, deletedAt: null },
     orderBy: { joinedAt: "desc" },
-    select: { id: true, competitionId: true, competition: true },
+    select: {
+      id: true,
+      competitionId: true,
+      competition: {
+        include: {
+          settings: { where: { supersededAt: null }, orderBy: { revision: "desc" }, take: 1 },
+        },
+      },
+      user: { select: { role: true } },
+    },
   });
   if (!participant) return null;
 
   const competition = participant.competition;
+  const settings = competition.settings[0];
+  const isAdmin = participant.user.role === "ADMIN";
+  const visibility = (settings?.leaderboardVisibility ?? "ALL") as "ALL" | "TOP_N" | "ADMIN_ONLY";
 
   const snapshot = await db.leaderboardSnapshot.findFirst({
     where: { competitionId: competition.id, kind: "DAILY" },
@@ -88,6 +110,9 @@ export async function loadLeaderboard(
       rows: [],
       you: null,
       youJoinedAfterSnapshot: false,
+      visibility,
+      canOpenPortfolios: isAdmin,
+      hiddenCount: 0,
       stats: null,
     };
   }
@@ -150,15 +175,37 @@ export async function loadLeaderboard(
     rows.push(...ranked, ...unranked);
   }
 
+  // Trimmed AFTER ranking, never before: a participant's own position is
+  // computed against everybody, so being shown ten rows does not change what
+  // "#17 of 26" means.
+  const you = rows.find((r) => r.isYou) ?? null;
+  let visible = rows;
+  let hiddenCount = 0;
+
+  if (!isAdmin && visibility === "ADMIN_ONLY") {
+    visible = [];
+    hiddenCount = rows.length;
+  } else if (!isAdmin && visibility === "TOP_N") {
+    const limit = settings?.leaderboardTopN ?? 10;
+    const top = rows.filter((r) => r.isRanked).slice(0, limit);
+    // The viewer always sees their own row, even when it falls outside the cut.
+    if (you && !top.some((r) => r.participantId === you.participantId)) top.push(you);
+    hiddenCount = rows.length - top.length;
+    visible = top;
+  }
+
   return {
     competition: { id: competition.id, name: competition.name, currency },
     asOfDate: snapshot.asOfDate,
     scope,
     rankedCount: snapshot.rankedCount,
     participantCount: snapshot.participantCount,
-    rows,
-    you: rows.find((r) => r.isYou) ?? null,
+    rows: visible,
+    you,
     youJoinedAfterSnapshot: !rows.some((r) => r.isYou),
+    visibility,
+    canOpenPortfolios: isAdmin || (settings?.showOthersHoldings ?? false),
+    hiddenCount,
     stats: {
       median: ratio(snapshot.medianReturnPpm),
       best: ratio(snapshot.bestReturnPpm),

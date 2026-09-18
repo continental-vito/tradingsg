@@ -84,7 +84,13 @@ export async function requireOwnedPortfolio(portfolioId: string): Promise<{
   };
 }
 
-/** True when the caller may see another participant's holdings. */
+/**
+ * Whether this viewer may open another participant's portfolio.
+ *
+ * Off unless the competition turns it on. An administrator always may — they
+ * can already see every portfolio from the admin area, and pretending otherwise
+ * would be theatre rather than privacy.
+ */
 export function canViewOthersHoldings(user: SessionUser, showOthersHoldings: boolean): boolean {
   return user.role === "ADMIN" || showOthersHoldings;
 }

@@ -52,6 +52,15 @@ export default async function LeaderboardPage({
     );
   }
 
+  if (data.visibility === "ADMIN_ONLY" && data.rows.length === 0) {
+    return (
+      <EmptyState
+        title="The standings are not public"
+        body="This competition's administrator has chosen to keep the leaderboard private. Your own return is on your dashboard."
+      />
+    );
+  }
+
   if (data.rows.length === 0) {
     return (
       <EmptyState
@@ -196,11 +205,19 @@ export default async function LeaderboardPage({
             </thead>
             <tbody>
               {ranked.map((row) => (
-                <Row key={row.participantId} row={row} />
+                <Row key={row.participantId} row={row} canOpen={data.canOpenPortfolios} />
               ))}
             </tbody>
           </table>
         </div>
+
+        {data.hiddenCount > 0 ? (
+          <div className="border-t border-[var(--border)] px-5 py-3 text-xs text-[var(--text-muted)]">
+            Showing the top {ranked.length}. {data.hiddenCount} further participant
+            {data.hiddenCount === 1 ? " is" : "s are"} ranked but not listed — your own position is
+            measured against all {data.rankedCount}, not just the ones shown.
+          </div>
+        ) : null}
 
         {unranked.length > 0 ? (
           <div className="border-t border-[var(--border)] bg-[var(--surface-sunken)] px-5 py-4">
@@ -249,7 +266,7 @@ function MiniStat({
   );
 }
 
-function Row({ row }: { row: LeaderboardRow }) {
+function Row({ row, canOpen }: { row: LeaderboardRow; canOpen: boolean }) {
   const medal = row.rank !== null ? MEDALS[row.rank] : undefined;
   return (
     <tr
@@ -266,7 +283,16 @@ function Row({ row }: { row: LeaderboardRow }) {
       <td className="px-3 py-3">
         <div className="flex items-center gap-2">
           <Avatar name={row.displayName} avatarUrl={row.avatarUrl} size="sm" />
-          <span className="font-medium">{row.displayName}</span>
+          {canOpen ? (
+            <Link
+              href={`/leaderboard/${row.participantId}`}
+              className="font-medium hover:text-accent-600"
+            >
+              {row.displayName}
+            </Link>
+          ) : (
+            <span className="font-medium">{row.displayName}</span>
+          )}
           {row.isYou ? (
             <span className="rounded-full bg-accent-600 px-1.5 py-0.5 text-[10px] font-medium text-white">
               you

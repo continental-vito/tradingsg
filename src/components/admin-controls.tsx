@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Alert, Button, Field, Input } from "@/components/ui";
 import type { ActionResult } from "@/app/actions/admin";
@@ -221,138 +221,390 @@ export function RemoveStockButton({
   );
 }
 
+export interface SettingsFormValues {
+  tradingMode: string;
+  periodUnit: string;
+  maxChangesPerPeriod: number;
+  lockAfterDate: string;
+  allowTradingBeforeStart: boolean;
+  maxPositionPct: number;
+  minPositionPct: number;
+  minPositionEuros: number;
+  minPositions: number;
+  maxPositions: number;
+  allowCash: boolean;
+  minCashPct: number;
+  maxCashPct: number;
+  allowFractionalShares: boolean;
+  minTradeEuros: number;
+  minTradeShares: number;
+  cashToleranceEuros: number;
+  feeBps: number;
+  feeFlatEuros: number;
+  feeMinEuros: number;
+  feeMaxEuros: number;
+  priceMode: string;
+  maxPriceStalenessDays: number;
+  maxQuoteAgeSeconds: number;
+  allowShort: boolean;
+  allowNegativeCash: boolean;
+  weeklyReportEnabled: boolean;
+  leaderboardVisibility: string;
+  leaderboardTopN: number;
+  showOthersHoldings: boolean;
+  notifyCompetitionStart: boolean;
+  notifySetupDeadline: boolean;
+  notifyWeeklyReport: boolean;
+  notifyEnteredTopThree: boolean;
+  notifyOvertaken: boolean;
+  notifyCompetitionEnd: boolean;
+  revision: number;
+}
+
+function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+  return (
+    <fieldset className="border-t border-[var(--border)] pt-4">
+      <legend className="sr-only">{title}</legend>
+      <h3 className="text-sm font-medium">{title}</h3>
+      {hint ? (
+        <p className="mt-0.5 mb-3 text-xs text-[var(--text-muted)]">{hint}</p>
+      ) : (
+        <div className="mb-3" />
+      )}
+      {children}
+    </fieldset>
+  );
+}
+
+function Check({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="flex items-start gap-2 text-sm">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 size-4 shrink-0 accent-accent-600"
+      />
+      <span>
+        {label}
+        {hint ? <span className="block text-xs text-[var(--text-muted)]">{hint}</span> : null}
+      </span>
+    </label>
+  );
+}
+
+/**
+ * Every rule the engine reads, in one form.
+ *
+ * Anything missing here is a rule the software enforces and nobody can change
+ * without editing the database — and several of these were already being shown
+ * to participants on the rules page, which made that page a description of
+ * settings their administrator had no way to reach.
+ */
 export function CompetitionSettingsForm({
   competitionId,
   initial,
   save,
 }: {
   competitionId: string;
-  initial: {
-    tradingMode: string;
-    maxChangesPerPeriod: number;
-    maxPositionPct: number;
-    minPositionPct: number;
-    allowCash: boolean;
-    allowFractionalShares: boolean;
-    feeBps: number;
-    revision: number;
-  };
-  save: (input: {
-    competitionId: string;
-    tradingMode: "ANYTIME" | "ONCE_PER_PERIOD" | "WINDOWS" | "LOCKED";
-    maxChangesPerPeriod: number;
-    maxPositionPct: number;
-    minPositionPct: number;
-    allowCash: boolean;
-    allowFractionalShares: boolean;
-    feeBps: number;
-  }) => Promise<ActionResult>;
+  initial: SettingsFormValues;
+  // Deliberately loose: the server action validates every field with Zod, and a
+  // prop type that claimed the narrowed shape would be asserting exactly what
+  // that validation exists to check.
+  save: (input: never) => Promise<ActionResult>;
 }) {
   const { pending, result, run } = useAction();
-  const [form, setForm] = useState(initial);
+  const [f, setF] = useState(initial);
+  const set = <K extends keyof SettingsFormValues>(k: K, v: SettingsFormValues[K]) =>
+    setF((prev) => ({ ...prev, [k]: v }));
 
-  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) =>
-    setForm((f) => ({ ...f, [key]: value }));
+  // step="any" by default, and never a step ladder anchored to a non-zero min.
+  // With min={0.1} step={0.5} the browser's valid values are 0.1, 0.6, 1.1 …,
+  // so a perfectly sensible 100% is a step mismatch — and the form then refuses
+  // to submit with no message, no server request and nothing in any log. Every
+  // one of these is validated properly by Zod on the server anyway.
+  const num = (k: keyof SettingsFormValues, props: Record<string, unknown> = {}) => (
+    <Input
+      type="number"
+      step="any"
+      value={String(f[k])}
+      onChange={(e) => set(k, Number(e.target.value) as never)}
+      {...props}
+    />
+  );
 
   return (
     <div>
       <form
-        className="space-y-4"
+        className="space-y-5"
         onSubmit={(e) => {
           e.preventDefault();
-          run(() =>
-            save({
-              competitionId,
-              tradingMode: form.tradingMode as "ANYTIME",
-              maxChangesPerPeriod: form.maxChangesPerPeriod,
-              maxPositionPct: form.maxPositionPct,
-              minPositionPct: form.minPositionPct,
-              allowCash: form.allowCash,
-              allowFractionalShares: form.allowFractionalShares,
-              feeBps: form.feeBps,
-            }),
-          );
+          run(() => save({ competitionId, ...f } as never));
         }}
       >
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="When participants may trade">
-            <select
-              value={form.tradingMode}
-              onChange={(e) => set("tradingMode", e.target.value)}
-              className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm"
-            >
-              <option value="ANYTIME">Any time</option>
-              <option value="ONCE_PER_PERIOD">A limited number of times per week</option>
-              <option value="WINDOWS">Only during scheduled windows</option>
-              <option value="LOCKED">Locked after setup</option>
-            </select>
-          </Field>
-          <Field
-            label="Changes allowed per week"
-            hint={
-              form.tradingMode === "ONCE_PER_PERIOD" ? undefined : "Only used in the limited mode."
-            }
-          >
-            <Input
-              type="number"
-              min={1}
-              max={50}
-              value={form.maxChangesPerPeriod}
-              onChange={(e) => set("maxChangesPerPeriod", Number(e.target.value))}
-              disabled={form.tradingMode !== "ONCE_PER_PERIOD"}
+        <Section title="Trading" hint="When participants may change their portfolio.">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Mode">
+              <select
+                value={f.tradingMode}
+                onChange={(e) => set("tradingMode", e.target.value)}
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm"
+              >
+                <option value="ANYTIME">Any time</option>
+                <option value="ONCE_PER_PERIOD">A limited number of times per period</option>
+                <option value="WINDOWS">Only during scheduled windows</option>
+                <option value="LOCKED">Locked after setup</option>
+              </select>
+            </Field>
+            <Field label="Period">
+              <select
+                value={f.periodUnit}
+                disabled={f.tradingMode !== "ONCE_PER_PERIOD"}
+                onChange={(e) => set("periodUnit", e.target.value)}
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm disabled:opacity-50"
+              >
+                <option value="DAY">Per day</option>
+                <option value="WEEK">Per week</option>
+                <option value="MONTH">Per month</option>
+              </select>
+            </Field>
+            <Field label="Changes allowed per period">
+              {num("maxChangesPerPeriod", {
+                min: 1,
+                max: 50,
+                disabled: f.tradingMode !== "ONCE_PER_PERIOD",
+              })}
+            </Field>
+            <Field label="Lock portfolios from" hint="Leave empty for no lock date.">
+              <Input
+                type="date"
+                value={f.lockAfterDate}
+                onChange={(e) => set("lockAfterDate", e.target.value)}
+              />
+            </Field>
+          </div>
+          <div className="mt-3">
+            <Check
+              label="Allow building a portfolio before the competition starts"
+              checked={f.allowTradingBeforeStart}
+              onChange={(v) => set("allowTradingBeforeStart", v)}
             />
-          </Field>
-          <Field label="Largest single position (%)">
-            <Input
-              type="number"
-              min={1}
-              max={100}
-              step={1}
-              value={form.maxPositionPct}
-              onChange={(e) => set("maxPositionPct", Number(e.target.value))}
-            />
-          </Field>
-          <Field label="Smallest position (%)" hint="0 to allow any size.">
-            <Input
-              type="number"
-              min={0}
-              max={100}
-              step={0.5}
-              value={form.minPositionPct}
-              onChange={(e) => set("minPositionPct", Number(e.target.value))}
-            />
-          </Field>
-          <Field label="Transaction fee (basis points)" hint="25 bps is 0.25% of each order.">
-            <Input
-              type="number"
-              min={0}
-              max={1000}
-              value={form.feeBps}
-              onChange={(e) => set("feeBps", Number(e.target.value))}
-            />
-          </Field>
-        </div>
+          </div>
+        </Section>
 
-        <div className="flex flex-wrap gap-6">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={form.allowCash}
-              onChange={(e) => set("allowCash", e.target.checked)}
-              className="size-4 accent-accent-600"
+        <Section
+          title="Position limits"
+          hint="Checked against what a participant would actually hold after rounding, not against what they typed."
+        >
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <Field label="Largest single position (%)">
+              {num("maxPositionPct", { min: 0.1, max: 100 })}
+            </Field>
+            <Field label="Smallest position (%)" hint="0 for no minimum.">
+              {num("minPositionPct", { min: 0, max: 100 })}
+            </Field>
+            <Field label="Smallest position (€)" hint="0 for no minimum.">
+              {num("minPositionEuros", { min: 0 })}
+            </Field>
+            <Field label="Fewest stocks" hint="0 for no minimum.">
+              {num("minPositions", { min: 0, max: 50 })}
+            </Field>
+            <Field label="Most stocks" hint="0 for no maximum.">
+              {num("maxPositions", { min: 0, max: 50 })}
+            </Field>
+          </div>
+          <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <Field label="Minimum cash (%)">{num("minCashPct", { min: 0, max: 100 })}</Field>
+            <Field label="Maximum cash (%)">{num("maxCashPct", { min: 0, max: 100 })}</Field>
+          </div>
+          <div className="mt-3">
+            <Check
+              label="Participants may hold cash"
+              hint="With this off, an allocation must invest everything within a €1 tolerance — whole shares make exactly zero impossible."
+              checked={f.allowCash}
+              onChange={(v) => set("allowCash", v)}
             />
-            Participants may hold cash
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={form.allowFractionalShares}
-              onChange={(e) => set("allowFractionalShares", e.target.checked)}
-              className="size-4 accent-accent-600"
+          </div>
+        </Section>
+
+        <Section title="Shares and dust">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Smallest trade (€)"
+              hint="Smaller changes are skipped rather than creating an order for nothing."
+            >
+              {num("minTradeEuros", { min: 0 })}
+            </Field>
+            <Field
+              label="Smallest trade (shares)"
+              hint="The other half of the dust guard. Without it a target of 33.33% churns a sliver every week forever."
+            >
+              {num("minTradeShares", { min: 0 })}
+            </Field>
+            <Field
+              label="Cash tolerance (€)"
+              hint="How much may be left over when cash is not allowed — whole shares make exactly zero impossible."
+            >
+              {num("cashToleranceEuros", { min: 0 })}
+            </Field>
+          </div>
+          <div className="mt-3">
+            <Check
+              label="Fractional shares allowed"
+              hint="With this off, amounts round down to whole shares and the remainder stays in cash."
+              checked={f.allowFractionalShares}
+              onChange={(v) => set("allowFractionalShares", v)}
             />
-            Fractional shares allowed
-          </label>
-        </div>
+          </div>
+        </Section>
+
+        <Section
+          title="Fees"
+          hint="Fees come out of the portfolio, so trading often costs return. Set everything to zero for no fees."
+        >
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Field label="Percentage (basis points)" hint="25 bps = 0.25%.">
+              {num("feeBps", { min: 0, max: 1000 })}
+            </Field>
+            <Field label="Flat per order (€)">{num("feeFlatEuros", { min: 0 })}</Field>
+            <Field label="Minimum fee (€)">{num("feeMinEuros", { min: 0 })}</Field>
+            <Field label="Maximum fee (€)" hint="0 for no cap.">
+              {num("feeMaxEuros", { min: 0 })}
+            </Field>
+          </div>
+        </Section>
+
+        <Section title="Pricing">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <Field label="Participants' own figures">
+              <select
+                value={f.priceMode}
+                onChange={(e) => set("priceMode", e.target.value)}
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm"
+              >
+                <option value="LAST_CLOSE">The last close, same as the leaderboard</option>
+                <option value="LIVE">The latest available price</option>
+              </select>
+            </Field>
+            <Field label="Carry a price forward for at most (days)">
+              {num("maxPriceStalenessDays", { min: 1, max: 365 })}
+            </Field>
+            <Field label="Refuse a quote older than (seconds)" hint="Only used in live mode.">
+              {num("maxQuoteAgeSeconds", { min: 30, max: 86400 })}
+            </Field>
+          </div>
+          <p className="mt-2 text-xs text-[var(--text-muted)]">
+            The leaderboard always uses the committed close, whichever of these is chosen, so
+            everyone comparing standings sees identical numbers.
+          </p>
+        </Section>
+
+        <Section
+          title="Leaderboard and reports"
+          hint="What participants can see, and whether the weekly email is produced at all."
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Who can see the leaderboard">
+              <select
+                value={f.leaderboardVisibility}
+                onChange={(e) => set("leaderboardVisibility", e.target.value)}
+                className="w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm"
+              >
+                <option value="ALL">Everyone, in full</option>
+                <option value="TOP_N">Everyone, but only the top few</option>
+                <option value="ADMIN_ONLY">Administrators only</option>
+              </select>
+            </Field>
+            <Field label="Places to show" hint="Used with “only the top few”.">
+              {num("leaderboardTopN", {
+                min: 1,
+                max: 500,
+                disabled: f.leaderboardVisibility !== "TOP_N",
+              })}
+            </Field>
+          </div>
+          <div className="mt-3 space-y-3">
+            <Check
+              label="Participants may open each other's portfolios"
+              hint="From the leaderboard. Administrators always can."
+              checked={f.showOthersHoldings}
+              onChange={(v) => set("showOthersHoldings", v)}
+            />
+            <Check
+              label="Produce the weekly report"
+              hint="With this off, no report is built and nothing can be sent."
+              checked={f.weeklyReportEnabled}
+              onChange={(v) => set("weeklyReportEnabled", v)}
+            />
+          </div>
+        </Section>
+
+        <Section
+          title="Notifications"
+          hint="Participants can still opt out of each one individually."
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Check
+              label="The competition starts"
+              checked={f.notifyCompetitionStart}
+              onChange={(v) => set("notifyCompetitionStart", v)}
+            />
+            <Check
+              label="Somebody has not built a portfolio"
+              checked={f.notifySetupDeadline}
+              onChange={(v) => set("notifySetupDeadline", v)}
+            />
+            <Check
+              label="The weekly report is ready"
+              checked={f.notifyWeeklyReport}
+              onChange={(v) => set("notifyWeeklyReport", v)}
+            />
+            <Check
+              label="Somebody reaches the top three"
+              checked={f.notifyEnteredTopThree}
+              onChange={(v) => set("notifyEnteredTopThree", v)}
+            />
+            <Check
+              label="Somebody is overtaken"
+              hint="Fires often; off by default."
+              checked={f.notifyOvertaken}
+              onChange={(v) => set("notifyOvertaken", v)}
+            />
+            <Check
+              label="The competition is ending"
+              checked={f.notifyCompetitionEnd}
+              onChange={(v) => set("notifyCompetitionEnd", v)}
+            />
+          </div>
+        </Section>
+
+        <Section
+          title="Deliberately off"
+          hint="Read by the invariant checker, which refuses to commit a portfolio that breaks them. Turning either on is a deliberate act, not a default."
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Check
+              label="Allow short positions"
+              checked={f.allowShort}
+              onChange={(v) => set("allowShort", v)}
+            />
+            <Check
+              label="Allow a negative cash balance"
+              checked={f.allowNegativeCash}
+              onChange={(v) => set("allowNegativeCash", v)}
+            />
+          </div>
+        </Section>
 
         <p className="text-xs text-[var(--text-muted)]">
           Saving writes revision {initial.revision + 1}. The current rules are kept, so a rebalance
@@ -827,6 +1079,69 @@ export function TradingWindows({
           Add window
         </Button>
       </form>
+      <Feedback result={result} />
+    </div>
+  );
+}
+
+export function LiquidateStockButton({
+  competitionId,
+  stockId,
+  symbol,
+  holders,
+  lastTradeDate,
+  ageDays,
+  liquidate,
+}: {
+  competitionId: string;
+  stockId: string;
+  symbol: string;
+  holders: number;
+  lastTradeDate: string | null;
+  ageDays: number;
+  liquidate: (competitionId: string, stockId: string) => Promise<ActionResult>;
+}) {
+  const { pending, result, run } = useAction();
+  const [confirming, setConfirming] = useState(false);
+
+  if (result?.ok) return <span className="text-xs text-up-600">Liquidated</span>;
+
+  if (!confirming) {
+    return (
+      <button
+        type="button"
+        onClick={() => setConfirming(true)}
+        className="text-xs font-medium text-down-600 hover:text-down-700"
+      >
+        Liquidate
+      </button>
+    );
+  }
+
+  return (
+    <div className="text-right">
+      <p className="mb-1.5 text-xs text-[var(--text-muted)]">
+        Sells {symbol} for all {holders} holder{holders === 1 ? "" : "s"} at its last close
+        {lastTradeDate ? ` on ${lastTradeDate}` : ""}, {ageDays} days ago. No fee. It cannot be
+        bought afterwards, and this cannot be undone.
+      </p>
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => setConfirming(false)}
+          className="text-xs text-[var(--text-muted)]"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => run(() => liquidate(competitionId, stockId))}
+          className="text-xs font-medium text-down-600"
+        >
+          {pending ? "Selling…" : "Liquidate for everyone"}
+        </button>
+      </div>
       <Feedback result={result} />
     </div>
   );

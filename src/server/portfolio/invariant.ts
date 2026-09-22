@@ -125,9 +125,10 @@ export async function checkPortfolioInvariants(
   }
   add("PORTFOLIO_COST_BASIS_MISMATCH", holdingBasisTotal, portfolio.costBasisCents);
 
-  // (F) A closed position carries no residual basis. Without the full-liquidation
-  //     short-circuit in the sell path, pro-rata rounding leaves ±1 cent here,
-  //     which then reads as infinite unrealised P/L on zero shares.
+  // (F) A closed position carries no residual basis. Without the full-close
+  //     short-circuit in the sell and cover paths, pro-rata rounding leaves ±1
+  //     cent here, which then reads as infinite unrealised P/L on zero shares.
+  //     Unchanged by shorting: closed is closed whichever side it was.
   for (const holding of holdings) {
     if (holding.microShares === 0n && holding.costBasisCents !== 0n) {
       violations.push({
@@ -167,6 +168,32 @@ export async function checkPortfolioInvariants(
         portfolioId,
         expected: 0n,
         actual: holding.microShares,
+        detail: `stock ${holding.stockId}`,
+      });
+    }
+  }
+
+  // (J) Basis and position agree in sign. A long is bought, so its basis is
+  //     positive; a short is sold first, so the proceeds are a NEGATIVE basis
+  //     and the unrealised P/L formula (value - basis) works unchanged in both
+  //     directions. A long with negative basis, or a short with positive, means
+  //     a leg was booked on the wrong side.
+  for (const holding of holdings) {
+    if (holding.microShares > 0n && holding.costBasisCents < 0n) {
+      violations.push({
+        code: "LONG_WITH_NEGATIVE_BASIS",
+        portfolioId,
+        expected: 0n,
+        actual: holding.costBasisCents,
+        detail: `stock ${holding.stockId}`,
+      });
+    }
+    if (holding.microShares < 0n && holding.costBasisCents > 0n) {
+      violations.push({
+        code: "SHORT_WITH_POSITIVE_BASIS",
+        portfolioId,
+        expected: 0n,
+        actual: holding.costBasisCents,
         detail: `stock ${holding.stockId}`,
       });
     }

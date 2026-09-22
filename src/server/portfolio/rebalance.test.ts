@@ -27,6 +27,9 @@ const noFees: FeeConfig = {
 
 function rulesOf(overrides: Partial<TradingRules> = {}): TradingRules {
   return {
+    allowShort: false,
+    maxShortPositionPpm: 200_000,
+    maxGrossExposurePpm: 1_500_000,
     minPositionPpm: 0,
     maxPositionPpm: 1_000_000,
     minPositionCents: 0n,

@@ -83,7 +83,11 @@ export default async function ParticipantPortfolioPage({
     .slice()
     .sort((a, b) => (b.marketValueCents > a.marketValueCents ? 1 : -1));
 
-  const slices = topNWithOther(holdings, 7, (h) => ({
+  // Shorts cannot be slices of a whole — same split as the participant's own
+  // portfolio view, so another person's page reads the same way as your own.
+  const longs = holdings.filter((h) => h.microShares > 0n);
+  const shorts = holdings.filter((h) => h.microShares < 0n);
+  const slices = topNWithOther(longs, 7, (h) => ({
     key: h.stockId,
     label: h.stock.symbol,
     valueCents: h.marketValueCents,
@@ -159,9 +163,29 @@ export default async function ParticipantPortfolioPage({
               <h2 className="mb-4 text-sm font-medium text-[var(--text-muted)]">Allocation</h2>
               <AllocationDonut
                 slices={slices}
-                centerLabel="Positions"
-                centerValue={String(holdings.length)}
+                centerLabel={shorts.length > 0 ? "Long" : "Positions"}
+                centerValue={String(longs.length)}
               />
+
+              {shorts.length > 0 ? (
+                <div className="mt-4 border-t border-[var(--border)] pt-3">
+                  <h3 className="text-xs font-medium text-[var(--text-muted)]">
+                    Short — a liability, so not shown above
+                  </h3>
+                  <ul className="mt-2 space-y-1.5 text-sm">
+                    {shorts.map((h) => (
+                      <li key={h.stockId} className="flex items-center gap-2.5">
+                        <span
+                          aria-hidden
+                          className="size-2.5 shrink-0 rounded-[3px] border border-down-500 bg-down-50"
+                        />
+                        <span className="min-w-0 flex-1 truncate">{h.stock.symbol}</span>
+                        <span className="tnum text-down-600">{formatPpm(h.weightPpm)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </Card>
           ) : null}
 

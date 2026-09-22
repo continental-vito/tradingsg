@@ -248,6 +248,8 @@ export interface SettingsFormValues {
   maxQuoteAgeSeconds: number;
   allowShort: boolean;
   allowNegativeCash: boolean;
+  maxShortPositionPct: number;
+  maxGrossExposurePct: number;
   weeklyReportEnabled: boolean;
   leaderboardVisibility: string;
   leaderboardTopN: number;
@@ -589,20 +591,33 @@ export function CompetitionSettingsForm({
         </Section>
 
         <Section
-          title="Deliberately off"
-          hint="Read by the invariant checker, which refuses to commit a portfolio that breaks them. Turning either on is a deliberate act, not a default."
+          title="Short selling"
+          hint="A long can only go to zero; a short can go to any price. These caps are what stop one participant turning the competition into a single unhedged bet nobody can catch up with."
         >
           <div className="grid gap-3 sm:grid-cols-2">
             <Check
               label="Allow short positions"
+              hint="Participants can then set a negative allocation, which sells a stock they do not hold."
               checked={f.allowShort}
               onChange={(v) => set("allowShort", v)}
             />
             <Check
               label="Allow a negative cash balance"
+              hint="Borrowing. Off means every position is paid for out of what the portfolio holds."
               checked={f.allowNegativeCash}
               onChange={(v) => set("allowNegativeCash", v)}
             />
+          </div>
+          <div className="mt-3 grid gap-4 sm:grid-cols-2">
+            <Field label="Largest single short (%)" hint="Of portfolio value.">
+              {num("maxShortPositionPct", { min: 0, max: 100, disabled: !f.allowShort })}
+            </Field>
+            <Field
+              label="Total exposure cap (%)"
+              hint="Longs plus shorts at their size. 100% means no leverage at all."
+            >
+              {num("maxGrossExposurePct", { min: 100, max: 500, disabled: !f.allowShort })}
+            </Field>
           </div>
         </Section>
 

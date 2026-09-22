@@ -58,6 +58,13 @@ export interface DashboardDto {
     weekReturn: RatioDto | null;
     cash: MoneyDto;
     cashWeightPpm: number;
+    /**
+     * Longs plus the absolute size of every short. Equal to the invested
+     * percentage when there are no shorts, and above 100% only when short
+     * proceeds have been put back to work — which is the thing worth showing.
+     */
+    grossExposurePpm: number;
+    shortExposurePpm: number;
     asOfDate: string | null;
     priceQuality: string;
     /**
@@ -153,6 +160,10 @@ export async function loadDashboard(userId: string): Promise<DashboardDto | null
   let holdings: HoldingDto[];
   let isLive = false;
   let liveReturnPpm = 0;
+  // Zero unless the participant is short something, which keeps every
+  // long-only portfolio reading exactly as it did before shorting existed.
+  let grossExposurePpm = 0;
+  let shortExposurePpm = 0;
 
   if (committedIsCurrent && latest) {
     currentValueCents = latest.totalValueCents;
@@ -176,12 +187,24 @@ export async function loadDashboard(userId: string): Promise<DashboardDto | null
         // table, rather than shown as a confident current price.
         priceIsStale: hv.priceSource !== "CLOSE" && hv.priceAgeDays > 3,
       }));
+    // Recomputed from the frozen rows rather than read off the valuation, so
+    // the committed and live branches report exposure the same way.
+    grossExposurePpm = latest.holdingValuations.reduce(
+      (sum, hv) => sum + Math.abs(hv.weightPpm),
+      0,
+    );
+    shortExposurePpm = latest.holdingValuations
+      .filter((hv) => hv.microShares < 0n)
+      .reduce((sum, hv) => sum + Math.abs(hv.weightPpm), 0);
   } else {
     // Priced live from the latest close available. This is the participant's
     // own view only — the leaderboard still reads committed snapshots, so two
     // people comparing standings still see identical numbers.
     isLive = true;
-    const held = portfolio.holdings.filter((h) => h.microShares > 0n);
+    // Every open position, long or short. This was `> 0n` when a holding could
+    // only be empty or long; a short dropped here would take its liability with
+    // it while leaving behind the cash the sale raised — money from nowhere.
+    const held = portfolio.holdings.filter((h) => h.microShares !== 0n);
     const book = await buildPriceBook(
       db,
       held.map((h) => h.stockId),
@@ -213,6 +236,8 @@ export async function loadDashboard(userId: string): Promise<DashboardDto | null
     currentValueCents = value.totalValueCents;
     cashCents = value.cashCents;
     liveReturnPpm = value.totalReturnPpm;
+    grossExposurePpm = value.grossExposurePpm;
+    shortExposurePpm = value.shortExposurePpm;
 
     const nameById = new Map(portfolio.holdings.map((h) => [h.stockId, h.stock.name]));
     holdings = value.holdings
@@ -299,6 +324,8 @@ export async function loadDashboard(userId: string): Promise<DashboardDto | null
           : null,
       cash: money(cashCents, currency),
       cashWeightPpm: toPpm(cashCents, currentValueCents),
+      grossExposurePpm,
+      shortExposurePpm,
       asOfDate: committedIsCurrent ? (latest?.asOfDate ?? null) : null,
       priceQuality: committedIsCurrent ? (latest?.priceQuality ?? "OK") : "OK",
       isLive,

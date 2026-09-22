@@ -47,16 +47,42 @@ export class MoneyError extends Error {
 }
 
 /**
- * Market value of a long position, and the gross proceeds of selling it. FLOOR.
+ * Mathematical floor division — toward negative infinity, not toward zero.
  *
- * BigInt division truncates toward zero, which is floor for the non-negative
- * quantities this takes — so the guard below is what makes that claim true
- * rather than merely usually true.
+ * BigInt's `/` truncates toward zero, so -3.5 becomes -3. For a long position
+ * that is the same as flooring and nothing changes. For a SHORT it is the
+ * difference between owing 334 and owing 333: truncation would quietly make
+ * every liability smaller than it is, in the holder's favour, which is exactly
+ * the direction the rounding rule exists to forbid.
+ */
+export function floorDiv(numerator: bigint, denominator: bigint): bigint {
+  if (denominator === 0n) throw new MoneyError("floorDiv: divide by zero", "DIVIDE_BY_ZERO");
+  const quotient = numerator / denominator;
+  // Truncation already floored unless the result is negative and inexact.
+  const inexact = numerator % denominator !== 0n;
+  const negative = numerator < 0n !== denominator < 0n;
+  return inexact && negative ? quotient - 1n : quotient;
+}
+
+/**
+ * Market value of a position, and the gross proceeds of closing it. FLOOR.
+ *
+ * SIGNED: a negative share count is a short, and its value is negative — it is
+ * a liability, and it is what the holder would have to pay to get out. Flooring
+ * makes that liability the larger of the two candidate numbers, so the rounding
+ * costs the holder at most a cent and never pays them, in both directions.
+ *
+ * The same function values a holding AND computes the proceeds of closing it.
+ * If those ever diverge, closing a position moves a portfolio's value for free.
  */
 export function marketValue(micro: MicroShares, priceCents: Cents): Cents {
-  if (micro < 0n) throw new MoneyError("marketValue: negative share count", "NEGATIVE_SHARES");
   if (priceCents < 0n) throw new MoneyError("marketValue: negative price", "NEGATIVE_PRICE");
-  return (micro * priceCents) / MICRO;
+  return floorDiv(micro * priceCents, MICRO);
+}
+
+/** The absolute size of a position, for anything that needs a magnitude. */
+export function absShares(micro: MicroShares): MicroShares {
+  return micro < 0n ? -micro : micro;
 }
 
 /** Cash cost of a purchase. CEIL — never let a buy spend a cent it did not have. */
@@ -76,9 +102,15 @@ export function sharesFor(
   { fractional = true }: { fractional?: boolean } = {},
 ): MicroShares {
   if (priceCents <= 0n) throw new MoneyError("sharesFor: price must be positive", "ZERO_PRICE");
-  if (amountCents <= 0n) return 0n;
-  const micro = (amountCents * MICRO) / priceCents;
-  return fractional ? micro : (micro / MICRO) * MICRO;
+  if (amountCents === 0n) return 0n;
+
+  // A negative amount sizes a SHORT. The magnitude is floored either way, so a
+  // short is never opened larger than the exposure that was asked for.
+  const negative = amountCents < 0n;
+  const magnitude = negative ? -amountCents : amountCents;
+  let micro = (magnitude * MICRO) / priceCents;
+  if (!fractional) micro = (micro / MICRO) * MICRO;
+  return negative ? -micro : micro;
 }
 
 /**
@@ -151,6 +183,15 @@ export function feeFor(notionalCents: Cents, config: FeeConfig): Cents {
 export function allocateWeightsPpm(values: readonly bigint[], total: bigint): number[] {
   if (values.length === 0) return [];
   if (total <= 0n) return values.map(() => 0);
+  // A short has a negative value and cannot be a slice of a pie. Callers split
+  // shorts out before they get here; this guard is so a mistake is loud rather
+  // than a chart that silently sums to something other than 100%.
+  if (values.some((v) => v < 0n)) {
+    throw new MoneyError(
+      "allocateWeightsPpm: a negative value cannot be a share of a whole. Split short positions out before allocating weights.",
+      "NEGATIVE_WEIGHT_VALUE",
+    );
+  }
 
   const base = values.map((v) => (v * PPM) / total);
   const remainders = values.map((v, i) => v * PPM - (base[i] ?? 0n) * total);
@@ -168,6 +209,41 @@ export function allocateWeightsPpm(values: readonly bigint[], total: bigint): nu
     const idx = order[k]?.i;
     if (idx !== undefined) out[idx] = (out[idx] ?? 0) + 1;
   }
+  return out;
+}
+
+/**
+ * Weights for a book that may contain shorts, as parts per million of NET
+ * portfolio value. Longs, cash and shorts together come to exactly 100%, and
+ * each weight is the percentage the participant typed on the allocation
+ * screen — which is the whole reason for using net value as the denominator
+ * rather than allocating longs among themselves.
+ *
+ * A short's weight is negative. That is why this cannot use
+ * allocateWeightsPpm, which refuses a negative by design: there the numbers
+ * are slices of a pie, here they are signed positions in a book.
+ *
+ * The rounding residue lands on the largest position by magnitude, where one
+ * part per million is least visible.
+ */
+export function allocateSignedWeightsPpm(values: readonly bigint[], total: bigint): number[] {
+  if (values.length === 0) return [];
+  // A portfolio worth nothing has no meaningful composition, and dividing by it
+  // would be worse than saying so.
+  if (total <= 0n) return values.map(() => 0);
+
+  const out = values.map((v) => Number((v * PPM) / total));
+  const assigned = out.reduce((a, b) => a + b, 0);
+  const residue = Number(PPM) - assigned;
+  if (residue === 0) return out;
+
+  let largest = 0;
+  for (let i = 1; i < values.length; i++) {
+    const v = values[i] ?? 0n;
+    const best = values[largest] ?? 0n;
+    if ((v < 0n ? -v : v) > (best < 0n ? -best : best)) largest = i;
+  }
+  out[largest] = (out[largest] ?? 0) + residue;
   return out;
 }
 

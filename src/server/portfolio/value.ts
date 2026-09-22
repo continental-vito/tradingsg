@@ -1,4 +1,4 @@
-import { allocateWeightsPpm, marketValue, toPpm, type Cents } from "@/server/money";
+import { allocateSignedWeightsPpm, marketValue, toPpm, type Cents } from "@/server/money";
 import { MissingPriceError, type PriceBook, type PricePointSource } from "./prices";
 
 /**
@@ -48,6 +48,10 @@ export interface PortfolioValue {
   totalReturnPpm: number;
   cashWeightPpm: number;
   positionCount: number;
+  /** Longs plus the magnitude of shorts, as ppm. 1_000_000 is fully invested, no leverage. */
+  grossExposurePpm: number;
+  /** The magnitude of the short book, as ppm. Zero when nothing is shorted. */
+  shortExposurePpm: number;
   holdings: HoldingValue[];
 }
 
@@ -58,8 +62,11 @@ export interface PortfolioValue {
 export function valuePortfolio(state: PortfolioState, book: PriceBook): PortfolioValue {
   // Sorted by stock id before weights are allocated, so the largest-remainder
   // tie-break is deterministic across runs and machines.
+  // Anything not flat, long or short. A short's market value is negative — it
+  // is what the holder would have to pay to get out — so it reduces the
+  // portfolio rather than being ignored.
   const held = [...state.holdings]
-    .filter((h) => h.microShares > 0n)
+    .filter((h) => h.microShares !== 0n)
     .sort((a, b) => a.stockId.localeCompare(b.stockId));
 
   const priced = held.map((h) => {
@@ -71,15 +78,20 @@ export function valuePortfolio(state: PortfolioState, book: PriceBook): Portfoli
   const holdingsValueCents = priced.reduce((sum, p) => sum + p.value, 0n);
   const totalValueCents = state.cashCents + holdingsValueCents;
 
-  // Cash is the last element so the weights cover the whole portfolio and sum
-  // to exactly one million — no mystery sliver in the donut chart.
-  const weights = allocateWeightsPpm(
+  // Every weight — long, short and cash alike — is a share of NET portfolio
+  // value, so they sum to exactly 100% and each one is the percentage the
+  // participant typed on the allocation screen. An earlier version allocated
+  // longs among themselves and measured shorts and cash against the total,
+  // which put three different denominators in a single column: a 30% position
+  // displayed as 26.1%, and the donut summed to 105%.
+  const weights = allocateSignedWeightsPpm(
     [...priced.map((p) => p.value), state.cashCents],
     totalValueCents,
   );
   const cashWeightPpm = weights[weights.length - 1] ?? 0;
+  const weightByStock = new Map(priced.map((p, i) => [p.holding.stockId, weights[i] ?? 0]));
 
-  const holdings: HoldingValue[] = priced.map((p, i) => ({
+  const holdings: HoldingValue[] = priced.map((p) => ({
     stockId: p.holding.stockId,
     symbol: p.holding.symbol,
     microShares: p.holding.microShares,
@@ -89,7 +101,7 @@ export function valuePortfolio(state: PortfolioState, book: PriceBook): Portfoli
     marketValueCents: p.value,
     costBasisCents: p.holding.costBasisCents,
     unrealizedPnlCents: p.value - p.holding.costBasisCents,
-    weightPpm: weights[i] ?? 0,
+    weightPpm: weightByStock.get(p.holding.stockId) ?? 0,
     positionReturnPpm: toPpm(p.value - p.holding.costBasisCents, p.holding.costBasisCents),
   }));
 
@@ -113,6 +125,13 @@ export function valuePortfolio(state: PortfolioState, book: PriceBook): Portfoli
     ),
     cashWeightPpm,
     positionCount: holdings.length,
+    grossExposurePpm: priced.reduce(
+      (sum, p) => sum + Math.abs(weightByStock.get(p.holding.stockId) ?? 0),
+      0,
+    ),
+    shortExposurePpm: priced
+      .filter((p) => p.holding.microShares < 0n)
+      .reduce((sum, p) => sum + Math.abs(weightByStock.get(p.holding.stockId) ?? 0), 0),
     holdings,
   };
 }

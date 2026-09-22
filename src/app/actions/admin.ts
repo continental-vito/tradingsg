@@ -265,6 +265,8 @@ const settingsSchema = z.object({
   // Explicitly off, and read by the invariant checker
   allowShort: z.boolean(),
   allowNegativeCash: z.boolean(),
+  maxShortPositionPct: z.coerce.number().min(0).max(100),
+  maxGrossExposurePct: z.coerce.number().min(100).max(500),
 
   // Visibility and comms
   weeklyReportEnabled: z.boolean(),
@@ -337,6 +339,12 @@ export async function updateSettingsAction(
       error: `At most ${d.maxPositions} stocks capped at ${d.maxPositionPct}% each can only reach ${(d.maxPositions * d.maxPositionPct).toFixed(0)}% of a portfolio, and cash is not allowed — nobody could submit a valid allocation.`,
     };
   }
+  if (d.allowShort && d.maxShortPositionPct > d.maxGrossExposurePct) {
+    return {
+      ok: false,
+      error: "A single short cannot be allowed to exceed the total exposure cap.",
+    };
+  }
   if (d.leaderboardVisibility === "TOP_N" && !d.leaderboardTopN) {
     return { ok: false, error: "Say how many places to show." };
   }
@@ -399,6 +407,8 @@ export async function updateSettingsAction(
 
         allowShort: d.allowShort,
         allowNegativeCash: d.allowNegativeCash,
+        maxShortPositionPpm: ppm(d.maxShortPositionPct),
+        maxGrossExposurePpm: ppm(d.maxGrossExposurePct),
 
         weeklyReportEnabled: d.weeklyReportEnabled,
         leaderboardVisibility: d.leaderboardVisibility,

@@ -52,7 +52,12 @@ export default async function DashboardPage() {
     );
   }
 
-  const slices = topNWithOther(holdings, 7, (h) => ({
+  // A short is a liability, not a share of the whole, so it cannot be a pie
+  // slice — allocateWeightsPpm throws on a negative for exactly this reason.
+  // Shorts are listed under the chart instead.
+  const longs = holdings.filter((h) => BigInt(h.shares.micro) > 0n);
+  const shorts = holdings.filter((h) => BigInt(h.shares.micro) < 0n);
+  const slices = topNWithOther(longs, 7, (h) => ({
     key: h.stockId,
     label: h.symbol,
     valueCents: BigInt(h.value.cents),
@@ -136,11 +141,19 @@ export default async function DashboardPage() {
           value={headline.weekGainLoss?.text ?? "—"}
           ratio={headline.weekReturn}
         />
-        <Stat
-          label="Cash"
-          value={headline.cash.text}
-          hint={`${(headline.cashWeightPpm / 10_000).toFixed(1)}% of the portfolio`}
-        />
+        {headline.shortExposurePpm > 0 ? (
+          <Stat
+            label="Total exposure"
+            value={`${(headline.grossExposurePpm / 10_000).toFixed(1)}%`}
+            hint={`${(headline.shortExposurePpm / 10_000).toFixed(1)}% of it short · ${headline.cash.text} cash`}
+          />
+        ) : (
+          <Stat
+            label="Cash"
+            value={headline.cash.text}
+            hint={`${(headline.cashWeightPpm / 10_000).toFixed(1)}% of the portfolio`}
+          />
+        )}
       </div>
 
       {data.best || data.worst ? (
@@ -184,9 +197,33 @@ export default async function DashboardPage() {
           <h2 className="mb-4 text-sm font-medium text-[var(--text-muted)]">Allocation</h2>
           <AllocationDonut
             slices={slices}
-            centerLabel="Positions"
-            centerValue={String(holdings.length)}
+            centerLabel={shorts.length > 0 ? "Long" : "Positions"}
+            centerValue={String(longs.length)}
           />
+
+          {shorts.length > 0 ? (
+            <div className="mt-4 border-t border-[var(--border)] pt-3">
+              <h3 className="text-xs font-medium text-[var(--text-muted)]">
+                Short — a liability, so not shown above
+              </h3>
+              <ul className="mt-2 space-y-1.5 text-sm">
+                {shorts.map((h) => (
+                  <li key={h.stockId} className="flex items-center gap-2.5">
+                    <span
+                      aria-hidden
+                      className="size-2.5 shrink-0 rounded-[3px] border border-down-500 bg-down-50"
+                    />
+                    <span className="min-w-0 flex-1 truncate">{h.symbol}</span>
+                    <span className="tnum text-down-600">{h.weightText}</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs text-[var(--text-muted)]">
+                Percentages are shares of net value, so the longs and cash above come to more than
+                100% between them — the short&rsquo;s proceeds are sitting in that cash.
+              </p>
+            </div>
+          ) : null}
         </Card>
       </div>
 
@@ -246,7 +283,14 @@ function HoldingsTable({ data }: { data: NonNullable<Awaited<ReturnType<typeof l
           {data.holdings.map((h) => (
             <tr key={h.stockId} className="border-b border-[var(--border)] last:border-0">
               <td className="px-5 py-3">
-                <div className="font-medium">{h.symbol}</div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium">{h.symbol}</span>
+                  {BigInt(h.shares.micro) < 0n ? (
+                    <span className="rounded border border-down-500 px-1 py-px text-[10px] font-medium text-down-600">
+                      SHORT
+                    </span>
+                  ) : null}
+                </div>
                 <div className="text-xs text-[var(--text-muted)]">{h.name}</div>
               </td>
               <td className="tnum px-3 py-3 text-right">{h.shares.text}</td>

@@ -1,4 +1,5 @@
 import {
+  absShares,
   divRound,
   feeFor,
   formatCents,
@@ -29,6 +30,12 @@ export interface RebalanceTarget {
 }
 
 export interface TradingRules {
+  /** Negative target weights are refused unless this is on. */
+  allowShort: boolean;
+  /** Largest single short, as ppm of portfolio value. */
+  maxShortPositionPpm: number;
+  /** Longs plus the magnitude of shorts, capped. 1_000_000 means no leverage. */
+  maxGrossExposurePpm: number;
   minPositionPpm: number;
   maxPositionPpm: number;
   minPositionCents: Cents;
@@ -75,11 +82,16 @@ export interface PlannedOrder {
   prevWeightPpm: number;
   newWeightPpm: number;
   wasScaledDown: boolean;
+  /** A sale that opens or increases a short rather than reducing a holding. */
+  opensShort: boolean;
+  /** A purchase that buys back a short rather than opening a holding. */
+  closesShort: boolean;
 }
 
 export interface ProjectedHolding {
   stockId: string;
   symbol: string;
+  /** Negative for a short. */
   microShares: MicroShares;
   costBasisCents: Cents;
   marketValueCents: Cents;
@@ -168,10 +180,17 @@ export function planRebalance(args: {
       err("DUPLICATE_STOCK", `${symbolOf(t.stockId)} appears twice in your allocation.`, t.stockId);
     }
     seen.add(t.stockId);
-    if (t.weightPpm < 0) {
+    if (t.weightPpm < 0 && !rules.allowShort) {
       err(
         "NEGATIVE_WEIGHT",
         `The allocation for ${symbolOf(t.stockId)} cannot be negative — short selling is not allowed in this competition.`,
+        t.stockId,
+      );
+    }
+    if (t.weightPpm < 0 && -t.weightPpm > rules.maxShortPositionPpm) {
+      err(
+        "SHORT_ABOVE_MAX",
+        `Shorting ${pct(-t.weightPpm)} of ${symbolOf(t.stockId)} is more than the ${pct(rules.maxShortPositionPpm)} this competition allows in one short. A short can lose more than it makes, which is why it is capped tighter than a holding.`,
         t.stockId,
       );
     }
@@ -184,31 +203,53 @@ export function planRebalance(args: {
     }
   }
 
-  const totalWeight = targets.reduce((sum, t) => sum + Math.max(0, t.weightPpm), 0);
-  if (totalWeight > Number(PPM)) {
+  // NET decides how much cash is left: shorting releases cash, so 110% long and
+  // 10% short still leaves nothing uninvested. GROSS decides how much exposure
+  // that is, which is the number the risk cap is about.
+  const netWeight = targets.reduce((sum, t) => sum + t.weightPpm, 0);
+  const grossWeight = targets.reduce((sum, t) => sum + Math.abs(t.weightPpm), 0);
+
+  if (netWeight > Number(PPM)) {
     err(
       "WEIGHTS_EXCEED_100",
-      `Your allocations add up to ${pct(totalWeight)}. Reduce them by ${pct(totalWeight - Number(PPM))} before confirming.`,
+      `Your allocations add up to ${pct(netWeight)}. Reduce them by ${pct(netWeight - Number(PPM))} before confirming.`,
+    );
+  }
+  if (grossWeight > rules.maxGrossExposurePpm) {
+    err(
+      "GROSS_EXPOSURE_EXCEEDED",
+      `Your positions add up to ${pct(grossWeight)} of your portfolio once shorts are counted at their size. This competition allows ${pct(rules.maxGrossExposurePpm)}.`,
     );
   }
 
-  const targetCashPpm = Number(PPM) - totalWeight;
-  if (!rules.allowCash && targetCashPpm > 0) {
+  // The cash rules are about how much is left UNINVESTED, and a short's
+  // proceeds are not that: they sit against the liability as collateral. So
+  // shorting 20% raises the cash balance to 120% while leaving exactly as much
+  // uninvested as before, and capping the raw balance would refuse every short
+  // for a reason that has nothing to do with the participant's choice.
+  //
+  // Free cash is therefore everything not committed to a LONG. With no shorts
+  // it is identical to the balance, so nothing about a long-only competition
+  // changes.
+  const longWeight = targets.reduce((sum, t) => sum + Math.max(0, t.weightPpm), 0);
+  const freeCashPpm = Number(PPM) - longWeight;
+
+  if (!rules.allowCash && freeCashPpm > 0) {
     err(
       "CASH_NOT_ALLOWED",
-      `You must invest all of your capital. ${pct(targetCashPpm)} is currently unallocated.`,
+      `You must invest all of your capital. ${pct(freeCashPpm)} is currently unallocated.`,
     );
   }
-  if (rules.allowCash && targetCashPpm < rules.minCashPpm) {
+  if (rules.allowCash && freeCashPpm < rules.minCashPpm) {
     err(
       "CASH_BELOW_MIN",
-      `You must keep at least ${pct(rules.minCashPpm)} in cash. Your plan leaves ${pct(targetCashPpm)}.`,
+      `You must keep at least ${pct(rules.minCashPpm)} uninvested. Your plan leaves ${pct(freeCashPpm)}.`,
     );
   }
-  if (rules.allowCash && targetCashPpm > rules.maxCashPpm) {
+  if (rules.allowCash && freeCashPpm > rules.maxCashPpm) {
     err(
       "CASH_ABOVE_MAX",
-      `You can hold at most ${pct(rules.maxCashPpm)} in cash. Your plan leaves ${pct(targetCashPpm)}.`,
+      `You can leave at most ${pct(rules.maxCashPpm)} uninvested. Your plan leaves ${pct(freeCashPpm)}.`,
     );
   }
 
@@ -260,8 +301,9 @@ export function planRebalance(args: {
     const price = priceOf.get(t.stockId);
     if (!price) continue;
     // Floor at both steps, so the plan under-invests by a few cents rather than
-    // over-committing. Under is the safe direction: it can never overdraw.
-    const targetValue = (preValueCents * BigInt(Math.max(0, t.weightPpm))) / PPM;
+    // over-committing. Under is the safe direction: it can never overdraw, and
+    // for a short it means never opening one larger than was asked for.
+    const targetValue = (preValueCents * BigInt(t.weightPpm)) / PPM;
     targetMicro.set(
       t.stockId,
       sharesFor(targetValue, price, { fractional: rules.allowFractionalShares }),
@@ -310,16 +352,46 @@ export function planRebalance(args: {
   }
   if (errors.length > 0) return { ok: false, errors };
 
-  // Sells first, largest first; then buys, largest first. Selling first
-  // guarantees the cash exists for the buys — no margin, no intermediate
-  // negative balance, no simultaneous system to solve. Largest-first within
-  // each group means a cash shortfall scales the least important buy.
-  legs.sort((a, b) => {
-    const aSell = a.delta < 0n;
-    const bSell = b.delta < 0n;
-    if (aSell !== bSell) return aSell ? -1 : 1;
-    const aSize = marketValue(a.delta < 0n ? -a.delta : a.delta, a.price);
-    const bSize = marketValue(b.delta < 0n ? -b.delta : b.delta, b.price);
+  // Any leg that crosses zero is TWO economic events, not one: going from ten
+  // long to five short is selling ten and then shorting five, and they have
+  // different cost bases, different realised P/L and different signs. Split
+  // them here so the simulation below only ever handles one thing at a time.
+  interface Step {
+    stockId: string;
+    price: Cents;
+    /** Signed change in shares for this step alone. */
+    delta: bigint;
+    /** Reducing an existing position toward zero, rather than opening one. */
+    closing: boolean;
+  }
+
+  const steps: Step[] = [];
+  for (const leg of legs) {
+    const held = current.get(leg.stockId)?.microShares ?? 0n;
+    const target = held + leg.delta;
+    const crossesZero = held !== 0n && held > 0n !== target > 0n && target !== 0n;
+
+    if (crossesZero) {
+      steps.push({ stockId: leg.stockId, price: leg.price, delta: -held, closing: true });
+      steps.push({ stockId: leg.stockId, price: leg.price, delta: target, closing: false });
+    } else {
+      // Reducing toward zero when the step moves against the position's sign.
+      const closing = held !== 0n && held > 0n !== leg.delta > 0n;
+      steps.push({ stockId: leg.stockId, price: leg.price, delta: leg.delta, closing });
+    }
+  }
+
+  // Cash-raising steps first, cash-spending after. With shorting that is no
+  // longer "sells before buys": a short sale RAISES cash and covering one
+  // SPENDS it. Ordering by what a step does to the balance is what keeps cash
+  // from going negative at any point, with no margin and no simultaneous system
+  // to solve. Largest first within each group, so a shortfall scales the
+  // smallest, least important order.
+  const raisesCash = (step: Step) => step.delta < 0n;
+  steps.sort((a, b) => {
+    if (raisesCash(a) !== raisesCash(b)) return raisesCash(a) ? -1 : 1;
+    const aSize = marketValue(absShares(a.delta), a.price);
+    const bSize = marketValue(absShares(b.delta), b.price);
     return bSize > aSize ? 1 : bSize < aSize ? -1 : a.stockId.localeCompare(b.stockId);
   });
 
@@ -329,94 +401,131 @@ export function planRebalance(args: {
 
   const weightOf = (value: Cents, total: Cents): number => toPpm(value, total);
 
-  for (const leg of legs) {
-    const holding = current.get(leg.stockId) ?? {
-      stockId: leg.stockId,
-      symbol: bySymbol(leg.stockId),
+  for (const step of steps) {
+    const holding = current.get(step.stockId) ?? {
+      stockId: step.stockId,
+      symbol: bySymbol(step.stockId),
       microShares: 0n,
       costBasisCents: 0n,
     };
-    const prevWeightPpm = weightOf(marketValue(holding.microShares, leg.price), preValueCents);
+    const prevWeightPpm = weightOf(marketValue(holding.microShares, step.price), preValueCents);
+    const magnitude = absShares(step.delta);
+    if (magnitude === 0n) continue;
 
-    if (leg.delta < 0n) {
-      const micro = -leg.delta;
-      const gross = marketValue(micro, leg.price);
+    if (step.delta < 0n) {
+      // Shares leave: either selling a long, or opening/increasing a short.
+      // Both raise cash, and both are a SELL in the ledger.
+      const gross = marketValue(magnitude, step.price);
       const fee = feeFor(gross, rules.fees);
       const proceedsNet = gross - fee;
-      // The full-liquidation short-circuit. Pro-rata rounding would otherwise
-      // leave ±1 cent of basis on a zero-share holding, which reads as infinite
-      // unrealised P/L and breaks the reconciliation.
-      const costRemoved =
-        micro === holding.microShares
-          ? holding.costBasisCents
-          : divRound(holding.costBasisCents * micro, holding.microShares);
 
-      holding.microShares -= micro;
-      holding.costBasisCents -= costRemoved;
+      let costRemoved = 0n;
+      let costAdded = 0n;
+      if (step.closing) {
+        // The full-close short-circuit. Pro-rata rounding would otherwise leave
+        // ±1 cent of basis on a zero-share holding, which reads as infinite
+        // unrealised P/L and breaks the reconciliation.
+        costRemoved =
+          magnitude === holding.microShares
+            ? holding.costBasisCents
+            : divRound(holding.costBasisCents * magnitude, holding.microShares);
+      } else {
+        // Opening a short: the proceeds are a NEGATIVE basis. The position is
+        // then worth marketValue (negative) against a negative basis, so the
+        // unrealised P/L starts at minus the fee — exactly as a long does.
+        costAdded = -proceedsNet;
+      }
+
+      holding.microShares -= magnitude;
+      holding.costBasisCents += costAdded - costRemoved;
       cash += proceedsNet;
       totalFeeCents += fee;
-      current.set(leg.stockId, holding);
+      current.set(step.stockId, holding);
 
       orders.push({
         side: "SELL",
-        stockId: leg.stockId,
-        symbol: bySymbol(leg.stockId),
-        microShares: micro,
-        priceCents: leg.price,
+        stockId: step.stockId,
+        symbol: bySymbol(step.stockId),
+        microShares: magnitude,
+        priceCents: step.price,
         grossCents: gross,
         feeCents: fee,
         cashDeltaCents: proceedsNet,
-        costAddedCents: 0n,
+        costAddedCents: costAdded,
         costRemovedCents: costRemoved,
-        realizedPnlCents: proceedsNet - costRemoved,
+        realizedPnlCents: step.closing ? proceedsNet - costRemoved : 0n,
         prevWeightPpm,
         newWeightPpm: 0,
         wasScaledDown: false,
+        opensShort: !step.closing,
+        closesShort: false,
       });
     } else {
-      const wanted = leg.delta;
-      const affordable = fitBuyToCash(wanted, leg.price, cash, rules);
+      // Shares arrive: either buying a long, or covering a short. Both spend
+      // cash, and both are a BUY in the ledger.
+      const wanted = magnitude;
+      const affordable = fitBuyToCash(wanted, step.price, cash, rules);
       if (affordable === 0n) {
         warn(
-          "INSUFFICIENT_CASH",
-          `After fees there was not enough cash left for the ${bySymbol(leg.stockId)} order, so it has been skipped.`,
-          leg.stockId,
+          step.closing ? "INSUFFICIENT_CASH_TO_COVER" : "INSUFFICIENT_CASH",
+          step.closing
+            ? `There was not enough cash to buy back the ${bySymbol(step.stockId)} short, so it has been left open.`
+            : `After fees there was not enough cash left for the ${bySymbol(step.stockId)} order, so it has been skipped.`,
+          step.stockId,
         );
         continue;
       }
       if (affordable < wanted) {
         warn(
           "BUY_SCALED_DOWN",
-          `After fees there was not enough cash for the full ${bySymbol(leg.stockId)} order, so it has been reduced to ${formatCents(marketValue(affordable, leg.price))}.`,
-          leg.stockId,
+          `After fees there was not enough cash for the full ${bySymbol(step.stockId)} order, so it has been reduced to ${formatCents(marketValue(affordable, step.price))}.`,
+          step.stockId,
         );
       }
 
-      const gross = purchaseCost(affordable, leg.price);
+      const gross = purchaseCost(affordable, step.price);
       const fee = feeFor(gross, rules.fees);
-      const costAdded = gross + fee;
+      const outlay = gross + fee;
+
+      let costRemoved = 0n;
+      let costAdded = 0n;
+      if (step.closing) {
+        // Covering a short. The basis being removed is negative, so realised
+        // P/L is the outlay netted against the credit taken when it was opened:
+        // short at 100 and buy back at 80 realises a gain, which is the whole
+        // point of the position.
+        const shortSize = -holding.microShares;
+        costRemoved =
+          affordable === shortSize
+            ? holding.costBasisCents
+            : divRound(holding.costBasisCents * affordable, shortSize);
+      } else {
+        costAdded = outlay;
+      }
 
       holding.microShares += affordable;
-      holding.costBasisCents += costAdded;
-      cash -= costAdded;
+      holding.costBasisCents += costAdded - costRemoved;
+      cash -= outlay;
       totalFeeCents += fee;
-      current.set(leg.stockId, holding);
+      current.set(step.stockId, holding);
 
       orders.push({
         side: "BUY",
-        stockId: leg.stockId,
-        symbol: bySymbol(leg.stockId),
+        stockId: step.stockId,
+        symbol: bySymbol(step.stockId),
         microShares: affordable,
-        priceCents: leg.price,
+        priceCents: step.price,
         grossCents: gross,
         feeCents: fee,
-        cashDeltaCents: -costAdded,
+        cashDeltaCents: -outlay,
         costAddedCents: costAdded,
-        costRemovedCents: 0n,
-        realizedPnlCents: 0n,
+        costRemovedCents: costRemoved,
+        realizedPnlCents: step.closing ? -outlay - costRemoved : 0n,
         prevWeightPpm,
         newWeightPpm: 0,
         wasScaledDown: affordable < wanted,
+        opensShort: false,
+        closesShort: step.closing,
       });
     }
   }
@@ -428,7 +537,8 @@ export function planRebalance(args: {
   let projectedHoldingsValue = 0n;
   const projected: ProjectedHolding[] = [];
   for (const holding of [...current.values()].sort((a, b) => a.stockId.localeCompare(b.stockId))) {
-    if (holding.microShares <= 0n) continue;
+    // Zero is closed; anything else, long or short, is a position.
+    if (holding.microShares === 0n) continue;
     const price = priceOf.get(holding.stockId) ?? 0n;
     const value = marketValue(holding.microShares, price);
     projectedHoldingsValue += value;
@@ -452,19 +562,40 @@ export function planRebalance(args: {
       : 0;
   }
 
+  // Checked on the PROJECTED end state, and on magnitude: a 25% short is a 25%
+  // position even though its weight is -25%. Reading the signed number here
+  // would let any short through every cap.
+  let projectedGrossPpm = 0;
   for (const p of projected) {
+    const isShort = p.microShares < 0n;
+    const sizePpm = Math.abs(p.weightPpm);
+    projectedGrossPpm += sizePpm;
+
+    if (isShort) {
+      if (sizePpm > rules.maxShortPositionPpm) {
+        err(
+          "SHORT_ABOVE_MAX",
+          `Shorting ${pct(sizePpm)} of ${p.symbol} is more than the ${pct(rules.maxShortPositionPpm)} this competition allows in one short.`,
+          p.stockId,
+        );
+      }
+      // A short is not checked against the long minimums: "at least 2% of the
+      // portfolio" makes no sense as a floor on a liability.
+      continue;
+    }
+
     const cap = rules.maxWeightOverridesPpm?.get(p.stockId) ?? rules.maxPositionPpm;
-    if (p.weightPpm > cap) {
+    if (sizePpm > cap) {
       err(
         "POSITION_ABOVE_MAX",
-        `${p.symbol} would be ${pct(p.weightPpm)} of your portfolio. The competition caps any single stock at ${pct(cap)}.`,
+        `${p.symbol} would be ${pct(sizePpm)} of your portfolio. The competition caps any single stock at ${pct(cap)}.`,
         p.stockId,
       );
     }
-    if (p.weightPpm < rules.minPositionPpm) {
+    if (sizePpm < rules.minPositionPpm) {
       err(
         "POSITION_BELOW_MIN",
-        `${p.symbol} would be ${pct(p.weightPpm)} of your portfolio. Positions must be at least ${pct(rules.minPositionPpm)} — increase it, or remove it entirely.`,
+        `${p.symbol} would be ${pct(sizePpm)} of your portfolio. Positions must be at least ${pct(rules.minPositionPpm)} — increase it, or remove it entirely.`,
         p.stockId,
       );
     }
@@ -475,6 +606,22 @@ export function planRebalance(args: {
         p.stockId,
       );
     }
+  }
+
+  if (projectedGrossPpm > rules.maxGrossExposurePpm) {
+    err(
+      "GROSS_EXPOSURE_EXCEEDED",
+      `Your positions would come to ${pct(projectedGrossPpm)} of your portfolio once shorts are counted at their size. This competition allows ${pct(rules.maxGrossExposurePpm)}.`,
+    );
+  }
+
+  // A portfolio whose shorts have swallowed it has no meaningful return, and
+  // the ranking has no sensible answer for a negative denominator.
+  if (postValueCents <= 0n) {
+    err(
+      "PORTFOLIO_WOULD_BE_WORTHLESS",
+      "That combination would leave your portfolio worth nothing or less. Reduce the shorts.",
+    );
   }
 
   if (rules.maxPositions !== null && projected.length > rules.maxPositions) {
@@ -489,10 +636,16 @@ export function planRebalance(args: {
       `You would hold ${projected.length} stock${projected.length === 1 ? "" : "s"}. At least ${rules.minPositions} are required.`,
     );
   }
-  if (!rules.allowCash && cash > rules.cashToleranceCents) {
+  // Free cash again: the balance minus whatever is standing against the shorts.
+  const shortLiability = projected
+    .filter((p) => p.microShares < 0n)
+    .reduce((sum, p) => sum - p.marketValueCents, 0n);
+  const freeCash = cash - shortLiability;
+
+  if (!rules.allowCash && freeCash > rules.cashToleranceCents) {
     err(
       "CASH_NOT_ALLOWED",
-      `${formatCents(cash)} would be left uninvested, above the ${formatCents(rules.cashToleranceCents)} allowed.`,
+      `${formatCents(freeCash)} would be left uninvested, above the ${formatCents(rules.cashToleranceCents)} allowed.`,
     );
   }
 
@@ -504,8 +657,8 @@ export function planRebalance(args: {
   // The cash the requested weights actually asked for. Anything above it is
   // whole-share rounding, and the participant should be told the number rather
   // than left to work out why 100% invested left €5 behind.
-  const intendedCashCents = (preValueCents * BigInt(Math.max(0, targetCashPpm))) / PPM;
-  if (!rules.allowFractionalShares && cash - intendedCashCents > rules.minTradeValueCents) {
+  const intendedCashCents = (preValueCents * BigInt(Math.max(0, freeCashPpm))) / PPM;
+  if (!rules.allowFractionalShares && freeCash - intendedCashCents > rules.minTradeValueCents) {
     warn(
       "FRACTIONAL_NOT_ALLOWED",
       `This competition trades whole shares only, so ${formatCents(cash - intendedCashCents)} could not be invested and stays in cash.`,

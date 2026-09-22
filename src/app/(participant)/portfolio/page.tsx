@@ -23,7 +23,11 @@ export default async function PortfolioPage() {
 
   const { holdings, headline } = data;
 
-  const slices = topNWithOther(holdings, 7, (h) => ({
+  // Shorts are liabilities and cannot be slices of a whole; they are listed
+  // under the chart instead. Same split as the dashboard.
+  const longs = holdings.filter((h) => BigInt(h.shares.micro) > 0n);
+  const shorts = holdings.filter((h) => BigInt(h.shares.micro) < 0n);
+  const slices = topNWithOther(longs, 7, (h) => ({
     key: h.stockId,
     label: h.symbol,
     valueCents: BigInt(h.value.cents),
@@ -94,6 +98,33 @@ export default async function PortfolioPage() {
               centerLabel="Value"
               centerValue={headline.currentValue.text}
             />
+
+            {shorts.length > 0 ? (
+              <div className="mt-4 border-t border-[var(--border)] pt-3">
+                <h3 className="text-xs font-medium text-[var(--text-muted)]">
+                  Short — a liability, so not shown above
+                </h3>
+                <ul className="mt-2 space-y-1.5 text-sm">
+                  {shorts.map((h) => (
+                    <li key={h.stockId} className="flex items-center gap-2.5">
+                      <span
+                        aria-hidden
+                        className="size-2.5 shrink-0 rounded-[3px] border border-down-500 bg-down-50"
+                      />
+                      <span className="min-w-0 flex-1 truncate">{h.symbol}</span>
+                      <span className="tnum text-down-600">{h.weightText}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-xs text-[var(--text-muted)]">
+                  Total exposure {(headline.grossExposurePpm / 10_000).toFixed(1)}%, of which{" "}
+                  {(headline.shortExposurePpm / 10_000).toFixed(1)}% is short. The percentages above
+                  are shares of your portfolio&rsquo;s net value, so the longs and cash in the chart
+                  come to more than 100% between them — the short&rsquo;s proceeds are sitting in
+                  that cash.
+                </p>
+              </div>
+            ) : null}
           </Card>
 
           <Card className="overflow-hidden p-0">
@@ -114,7 +145,14 @@ export default async function PortfolioPage() {
                   {holdings.map((h) => (
                     <tr key={h.stockId} className="border-b border-[var(--border)] last:border-0">
                       <td className="px-5 py-3">
-                        <div className="font-medium">{h.symbol}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-medium">{h.symbol}</span>
+                          {BigInt(h.shares.micro) < 0n ? (
+                            <span className="rounded border border-down-500 px-1 py-px text-[10px] font-medium text-down-600">
+                              SHORT
+                            </span>
+                          ) : null}
+                        </div>
                         <div className="text-xs text-[var(--text-muted)]">{h.name}</div>
                       </td>
                       <td className="tnum px-3 py-3 text-right">{h.shares.text}</td>

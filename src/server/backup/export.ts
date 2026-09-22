@@ -105,7 +105,7 @@ export async function buildExports(
 
   const holdingRows = participants.flatMap((p) =>
     (p.portfolio?.holdings ?? [])
-      .filter((h) => h.microShares > 0n)
+      .filter((h) => h.microShares !== 0n)
       .map((h) => [
         p.user.email,
         h.stock.symbol,

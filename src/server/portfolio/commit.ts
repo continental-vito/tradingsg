@@ -78,6 +78,9 @@ export async function loadTradingRules(
   return {
     feeConfig,
     rules: {
+      allowShort: settings.allowShort,
+      maxShortPositionPpm: settings.maxShortPositionPpm,
+      maxGrossExposurePpm: settings.maxGrossExposurePpm,
       minPositionPpm: settings.minPositionPpm,
       maxPositionPpm: settings.maxPositionPpm,
       minPositionCents: settings.minPositionCents,

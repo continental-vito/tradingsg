@@ -119,6 +119,9 @@ export default async function AllocatePage() {
           totalValueText={formatCents(totalValueCents, competition.currency)}
           maxPositionPpm={settings.maxPositionPpm}
           allowCash={settings.allowCash}
+          allowShort={settings.allowShort}
+          maxShortPositionPpm={settings.maxShortPositionPpm}
+          maxGrossExposurePpm={settings.maxGrossExposurePpm}
           preview={previewRebalanceAction}
           submit={submitRebalanceAction}
         />

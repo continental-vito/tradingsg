@@ -108,7 +108,7 @@ export async function buildPriceBook(
     }
 
     const fallback = options.costBasisFallback?.get(stockId);
-    if (fallback && fallback.microShares > 0n) {
+    if (fallback && fallback.microShares !== 0n) {
       points.set(stockId, {
         stockId,
         priceCents: divRound(fallback.costBasisCents * MICRO, fallback.microShares),

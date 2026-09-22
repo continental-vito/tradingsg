@@ -220,10 +220,20 @@ model CompetitionSettings {
   maxPriceStalenessDays Int    @default(7)
   maxQuoteAgeSeconds    Int    @default(900)
 
-  // Stated explicitly so the invariant checker has something to read, and so
-  // turning either on is a deliberate act rather than an emergent bug.
+  // Read by the invariant checker and the rebalance planner. Turning either on
+  // is a deliberate act rather than an emergent bug.
   allowShort        Boolean @default(false)
   allowNegativeCash Boolean @default(false)
+
+  // Bounds on shorting, meaningless unless allowShort.
+  //
+  // A short's loss is unbounded in a way a long's is not: a long can only go to
+  // zero, a short can go to any price. These are what stop one participant
+  // turning the competition into a single unhedged bet nobody can catch up
+  // with — and what stop a portfolio going negative, which the return maths
+  // has no sensible answer for.
+  maxShortPositionPpm Int @default(200000) // 20% of the portfolio in one short
+  maxGrossExposurePpm Int @default(1500000) // longs + |shorts| ≤ 150%
 
   weeklyReportEnabled   Boolean @default(true)
   leaderboardVisibility String  @default("ALL") // ALL | TOP_N | ADMIN_ONLY

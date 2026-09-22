@@ -127,10 +127,19 @@ if [[ -f prisma/schema.prisma && -f src/app/actions/admin.ts ]]; then
                 --exclude-dir=generated --exclude='*.test.ts' src 2>/dev/null; then
             unread="${unread} ${field}"
         fi
-        # Settable either by its own name or via a converted form field, so a
-        # percentage stored as ppm still counts.
-        base="${field%%Ppm}"; base="${base%%Cents}"; base="${base%%MicroShares}"
-        if ! grep -q "${base}" src/app/actions/admin.ts 2>/dev/null; then
+        # Matched on a stem, because a field stored in one unit is usually
+        # edited in another: maxPositionPpm is a percentage on screen and
+        # minTradeValueCents is euros. Longest suffix first, or ValueCents
+        # would lose only "Cents" and stop matching.
+        base="${field}"
+        for suffix in ValueCents MicroShares Cents Ppm; do
+            base="${base%${suffix}}"
+        done
+        # Both halves: an action that accepts the field, AND a form that sends
+        # it. Checking only the action let a setting through that the engine
+        # read, the action could set, and no screen ever offered.
+        if ! grep -q "${base}" src/app/actions/admin.ts 2>/dev/null \
+           || ! grep -q "${base}" src/components/admin-controls.tsx 2>/dev/null; then
             unsettable="${unsettable} ${field}"
         fi
     done < <(echo "${settings_block}" | grep -oE '^  [a-zA-Z]+ +(String|Int|Boolean|BigInt|DateTime)' | awk '{print $1}')

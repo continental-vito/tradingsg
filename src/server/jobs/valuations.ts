@@ -55,7 +55,7 @@ export async function snapshotValuations(
   let degraded = 0;
 
   for (const portfolio of portfolios) {
-    const stockIds = portfolio.holdings.filter((h) => h.microShares > 0n).map((h) => h.stockId);
+    const stockIds = portfolio.holdings.filter((h) => h.microShares !== 0n).map((h) => h.stockId);
 
     const book = await buildPriceBook(db, stockIds, asOfDate, {
       maxStalenessDays,

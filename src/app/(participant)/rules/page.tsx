@@ -144,9 +144,56 @@ export default async function RulesPage() {
               value: formatCents(s.minTradeValueCents, currency),
               note: "Smaller changes are skipped rather than generating an order for nothing.",
             },
-            { label: "Short selling", value: s.allowShort ? "Allowed" : "Not allowed" },
+            {
+              label: "Short selling",
+              value: s.allowShort ? "Allowed" : "Not allowed",
+              note: s.allowShort
+                ? "See the section below for how it works and what it is capped at."
+                : "Every position is a long. You can only profit from a stock you hold going up.",
+            },
           ],
         },
+        // Only shown when it is switched on. Explaining a mechanic nobody can
+        // use is noise, and worse, it reads as though the rule applies.
+        ...(s.allowShort
+          ? [
+              {
+                title: "Short selling",
+                rules: [
+                  {
+                    label: "What it is",
+                    value: "Selling a stock you do not own",
+                    note: "You borrow the stock, sell it at today's price, and owe it back later. If it falls you buy it back for less and keep the difference. If it rises you buy it back for more and take the loss.",
+                  },
+                  {
+                    label: "Set one up",
+                    value: "Enter a negative percentage",
+                    note: "On the allocation screen, a position of \u221210% is a short of a tenth of your portfolio. Positive is a long, as before.",
+                  },
+                  {
+                    label: "Largest single short",
+                    value: pct(s.maxShortPositionPpm),
+                    note: "Per stock, measured on the position you would actually end up holding.",
+                  },
+                  {
+                    label: "Total exposure",
+                    value: pct(s.maxGrossExposurePpm),
+                    note: "Your longs plus your shorts, counting shorts by their size rather than their sign. Shorting frees up cash to buy more, and this cap is what stops that becoming unlimited leverage.",
+                  },
+                  {
+                    label: "What a short does to your cash",
+                    value: "Holds it as collateral",
+                    note: "The proceeds of a short sale are not spare money. They stand against what you owe, so they cannot be spent on a further long.",
+                  },
+                  {
+                    label: "The risk",
+                    value: "A short's loss has no ceiling",
+                    note: "A long can only fall to zero, so the most you can lose is what you put in. A short loses as much as the stock rises, and a stock can rise without limit. If your portfolio would be wiped out, the trade is refused.",
+                  },
+                ],
+              },
+            ]
+          : []),
         {
           title: "How performance is measured",
           rules: [

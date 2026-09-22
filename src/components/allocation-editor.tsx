@@ -40,6 +40,9 @@ export function AllocationEditor({
   totalValueText,
   maxPositionPpm,
   allowCash,
+  allowShort,
+  maxShortPositionPpm,
+  maxGrossExposurePpm,
   preview,
   submit,
 }: {
@@ -50,6 +53,9 @@ export function AllocationEditor({
   totalValueText: string;
   maxPositionPpm: number;
   allowCash: boolean;
+  allowShort: boolean;
+  maxShortPositionPpm: number;
+  maxGrossExposurePpm: number;
   preview: (portfolioId: string, targets: unknown) => Promise<PlanPreview>;
   submit: (
     portfolioId: string,
@@ -68,23 +74,49 @@ export function AllocationEditor({
   // rather than trading twice.
   const [idempotencyKey] = useState(() => crypto.randomUUID());
 
-  const allocated = useMemo(() => Object.values(weights).reduce((a, b) => a + b, 0), [weights]);
-  const cashPpm = PPM - allocated;
-  const overAllocated = allocated > PPM;
-  const canSubmit = !overAllocated && (allowCash || cashPpm === 0) && allocated > 0;
+  // NET is what is committed overall and decides what is left uninvested;
+  // GROSS is longs plus the absolute size of every short, which is what the
+  // exposure cap is about. With no shorts the two are the same number, so a
+  // long-only competition reads exactly as it did before shorting existed.
+  const net = useMemo(() => Object.values(weights).reduce((a, b) => a + b, 0), [weights]);
+  const longTotal = useMemo(
+    () => Object.values(weights).reduce((a, b) => a + Math.max(0, b), 0),
+    [weights],
+  );
+  const gross = useMemo(
+    () => Object.values(weights).reduce((a, b) => a + Math.abs(b), 0),
+    [weights],
+  );
+  const shortTotal = gross - longTotal;
+
+  // Free cash is what is not committed to a long. A short's proceeds are
+  // collateral against its liability, not spare money to spend, so they do not
+  // count here — this mirrors freeCashPpm in the server-side planner.
+  const cashPpm = PPM - longTotal;
+  const overAllocated = net > PPM;
+  const overExposed = gross > maxGrossExposurePpm;
+  const canSubmit = !overAllocated && !overExposed && (allowCash || cashPpm === 0) && gross > 0;
 
   const total = BigInt(totalValueCents);
   const money = new Intl.NumberFormat("de-DE", { style: "currency", currency });
 
+  // The floor is negative only when shorting is allowed, so the control cannot
+  // offer something the server will refuse.
+  const floorPpm = allowShort ? -maxShortPositionPpm : 0;
   const setWeight = (id: string, ppm: number) => {
-    setWeights((w) => ({ ...w, [id]: Math.max(0, Math.min(PPM, Math.round(ppm))) }));
+    setWeights((w) => ({ ...w, [id]: Math.max(floorPpm, Math.min(PPM, Math.round(ppm))) }));
     setPlan(null);
     setSubmitError(null);
   };
 
+  // The donut draws longs and cash; a short is a liability and cannot be a
+  // slice of a whole, so it is listed beneath instead of forced into the chart.
   const held = stocks
     .filter((s) => (weights[s.id] ?? 0) > 0)
     .sort((a, b) => (weights[b.id] ?? 0) - (weights[a.id] ?? 0));
+  const shorted = stocks
+    .filter((s) => (weights[s.id] ?? 0) < 0)
+    .sort((a, b) => (weights[a.id] ?? 0) - (weights[b.id] ?? 0));
 
   const slices: Slice[] = held.slice(0, 8).map((s, i) => ({
     key: s.id,
@@ -155,7 +187,7 @@ export function AllocationEditor({
                   const amountCents = (total * BigInt(ppm)) / BigInt(PPM);
                   const priceCents = BigInt(stock.priceCents);
                   const estShares = priceCents > 0n ? Number(amountCents) / Number(priceCents) : 0;
-                  const overCap = ppm > maxPositionPpm;
+                  const overCap = ppm > maxPositionPpm || (ppm < 0 && -ppm > maxShortPositionPpm);
 
                   return (
                     <tr key={stock.id} className="border-b border-[var(--border)] last:border-0">
@@ -170,10 +202,10 @@ export function AllocationEditor({
                         <div className="flex items-center gap-2">
                           <input
                             type="range"
-                            min={0}
+                            min={floorPpm}
                             max={Math.min(maxPositionPpm, PPM)}
                             step={5_000}
-                            value={Math.min(ppm, maxPositionPpm)}
+                            value={Math.max(floorPpm, Math.min(ppm, maxPositionPpm))}
                             onChange={(e) => setWeight(stock.id, Number(e.target.value))}
                             aria-label={`${stock.symbol} allocation`}
                             className="h-1.5 min-w-0 flex-1 cursor-pointer accent-accent-600"
@@ -199,14 +231,20 @@ export function AllocationEditor({
                         </div>
                         {overCap ? (
                           <p className="mt-1 text-xs text-down-600">
-                            Above the {(maxPositionPpm / 10_000).toFixed(0)}% cap for one stock.
+                            {ppm < 0
+                              ? `Above the ${(maxShortPositionPpm / 10_000).toFixed(0)}% cap for one short.`
+                              : `Above the ${(maxPositionPpm / 10_000).toFixed(0)}% cap for one stock.`}
                           </p>
                         ) : null}
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
-                        <div className="tnum">{money.format(Number(amountCents) / 100)}</div>
+                        <div className={"tnum " + (ppm < 0 ? "text-down-600" : "")}>
+                          {ppm < 0 ? "short " : ""}
+                          {money.format(Math.abs(Number(amountCents)) / 100)}
+                        </div>
                         <div className="tnum text-xs text-[var(--text-muted)]">
-                          ≈ {estShares.toFixed(2)} shares
+                          ≈ {Math.abs(estShares).toFixed(2)} shares
+                          {ppm < 0 ? " owed" : ""}
                         </div>
                       </td>
                     </tr>
@@ -256,7 +294,7 @@ export function AllocationEditor({
               <span
                 className={
                   "tnum text-2xl font-semibold " +
-                  (overAllocated
+                  (overAllocated || overExposed
                     ? "text-down-600"
                     : cashPpm === 0
                       ? "text-up-600"
@@ -269,27 +307,55 @@ export function AllocationEditor({
             <div
               className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--surface-sunken)]"
               role="progressbar"
-              aria-valuenow={Math.round(allocated / 10_000)}
+              aria-valuenow={Math.round(longTotal / 10_000)}
               aria-valuemin={0}
               aria-valuemax={100}
             >
               <div
                 className={
                   "h-full rounded-full transition-all " +
-                  (overAllocated ? "bg-down-500" : "bg-accent-600")
+                  (overAllocated || overExposed ? "bg-down-500" : "bg-accent-600")
                 }
-                style={{ width: `${Math.min(100, allocated / 10_000)}%` }}
+                style={{ width: `${Math.min(100, longTotal / 10_000)}%` }}
               />
             </div>
             <p className="mt-2 text-xs text-[var(--text-muted)]">
               {overAllocated
-                ? `You have allocated ${(allocated / 10_000).toFixed(1)}%. Reduce by ${((allocated - PPM) / 10_000).toFixed(1)}%.`
-                : cashPpm === 0
-                  ? "Fully allocated."
-                  : allowCash
-                    ? "The remainder stays in cash, which is allowed in this competition."
-                    : `This competition requires you to invest everything. Allocate the remaining ${(cashPpm / 10_000).toFixed(1)}%.`}
+                ? `Your positions come to ${(net / 10_000).toFixed(1)}% of the portfolio. Reduce by ${((net - PPM) / 10_000).toFixed(1)}%.`
+                : overExposed
+                  ? `Longs and shorts together come to ${(gross / 10_000).toFixed(1)}%. This competition allows ${(maxGrossExposurePpm / 10_000).toFixed(0)}%.`
+                  : cashPpm === 0
+                    ? "Fully invested."
+                    : allowCash
+                      ? "The remainder stays in cash, which is allowed in this competition."
+                      : `This competition requires you to invest everything. Allocate the remaining ${(cashPpm / 10_000).toFixed(1)}%.`}
             </p>
+
+            {shortTotal > 0 ? (
+              <dl className="mt-3 space-y-1 border-t border-[var(--border)] pt-3 text-xs">
+                <div className="flex justify-between">
+                  <dt className="text-[var(--text-muted)]">Long</dt>
+                  <dd className="tnum">{(longTotal / 10_000).toFixed(1)}%</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-[var(--text-muted)]">Short</dt>
+                  <dd className="tnum text-down-600">−{(shortTotal / 10_000).toFixed(1)}%</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-[var(--text-muted)]">Total exposure</dt>
+                  <dd className={"tnum " + (overExposed ? "text-down-600" : "")}>
+                    {(gross / 10_000).toFixed(1)}%{" "}
+                    <span className="text-[var(--text-muted)]">
+                      of {(maxGrossExposurePpm / 10_000).toFixed(0)}%
+                    </span>
+                  </dd>
+                </div>
+                <p className="pt-1 text-[var(--text-muted)]">
+                  Shorting sells a stock you do not hold: you gain if it falls and lose if it rises,
+                  and a rise has no ceiling.
+                </p>
+              </dl>
+            ) : null}
           </div>
         </Card>
 
@@ -306,6 +372,28 @@ export function AllocationEditor({
               centerValue={String(held.length)}
             />
           )}
+
+          {shorted.length > 0 ? (
+            <div className="mt-4 border-t border-[var(--border)] pt-3">
+              <h3 className="text-xs font-medium text-[var(--text-muted)]">
+                Short — not shown above, because a liability is not a share of the whole
+              </h3>
+              <ul className="mt-2 space-y-1.5 text-sm">
+                {shorted.map((stock) => (
+                  <li key={stock.id} className="flex items-center gap-2.5">
+                    <span
+                      aria-hidden
+                      className="size-2.5 shrink-0 rounded-[3px] border border-down-500 bg-down-50"
+                    />
+                    <span className="min-w-0 flex-1 truncate">{stock.symbol}</span>
+                    <span className="tnum text-down-600">
+                      −{Math.abs((weights[stock.id] ?? 0) / 10_000).toFixed(1)}%
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </Card>
 
         {submitError ? <Alert>{submitError}</Alert> : null}

@@ -72,6 +72,8 @@ export default async function AdminSettingsPage() {
             maxQuoteAgeSeconds: current.maxQuoteAgeSeconds,
             allowShort: current.allowShort,
             allowNegativeCash: current.allowNegativeCash,
+            maxShortPositionPct: current.maxShortPositionPpm / 10_000,
+            maxGrossExposurePct: current.maxGrossExposurePpm / 10_000,
             weeklyReportEnabled: current.weeklyReportEnabled,
             leaderboardVisibility: current.leaderboardVisibility,
             leaderboardTopN: current.leaderboardTopN ?? 10,

@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   MICRO,
   PPM,
+  absShares,
   allocateWeightsPpm,
+  floorDiv,
   divRound,
   feeFor,
   formatPpm,
@@ -63,8 +65,7 @@ describe("rounding direction", () => {
     expect(marketValue(micro, 40_000n)).toBe(480_000n);
   });
 
-  it("rejects negative shares and negative prices rather than returning nonsense", () => {
-    expect(() => marketValue(-1n, 100n)).toThrow(/negative share count/);
+  it("rejects a negative price rather than returning nonsense", () => {
     expect(() => marketValue(1n, -100n)).toThrow(/negative price/);
     expect(() => sharesFor(100n, 0n)).toThrow(/price must be positive/);
   });
@@ -173,5 +174,65 @@ describe("display helpers", () => {
     expect(formatShares(1_500_000n)).toBe("1.5");
     expect(formatShares(12n * MICRO)).toBe("12");
     expect(formatShares(1_234_500n)).toBe("1.2345");
+  });
+});
+
+describe("short positions", () => {
+  // BigInt's `/` truncates toward zero, so -3.5 becomes -3. For a long that is
+  // already flooring and nothing changes; for a SHORT it is the difference
+  // between owing 334 and owing 333 — a liability quietly made smaller than it
+  // is, in the holder's favour, which is the one direction the rounding rule
+  // exists to forbid.
+  it("floors toward negative infinity, not toward zero", () => {
+    expect(floorDiv(-7n, 2n)).toBe(-4n);
+    expect(floorDiv(7n, 2n)).toBe(3n);
+    expect(floorDiv(-8n, 2n)).toBe(-4n);
+    expect(floorDiv(8n, 2n)).toBe(4n);
+    expect(() => floorDiv(1n, 0n)).toThrow(/divide by zero/);
+  });
+
+  it("values a short as a negative amount, floored", () => {
+    // 1.000001 shares short at 333 cents is -333.0003 cents of liability.
+    expect(marketValue(-1_000_001n, 333n)).toBe(-334n);
+    // The long of the same size is unchanged, so nothing about existing
+    // portfolios moves.
+    expect(marketValue(1_000_001n, 333n)).toBe(333n);
+  });
+
+  it("never understates a liability, at any size", () => {
+    const price = 12_345n;
+    for (let micro = 1n; micro < 5_000_000n; micro += 97_777n) {
+      const short = marketValue(-micro, price);
+      const long = marketValue(micro, price);
+      // The short's liability is at least as large as the long's value — the
+      // rounding goes against the holder in both directions.
+      expect(-short).toBeGreaterThanOrEqual(long);
+      expect(-short - long).toBeLessThanOrEqual(1n);
+    }
+  });
+
+  it("sizes a short from a negative amount", () => {
+    // -€10,000 of exposure at €200 is 50 shares short.
+    expect(sharesFor(-1_000_000n, 20_000n)).toBe(-50n * MICRO);
+    // Floored by magnitude, so a short is never opened bigger than asked for.
+    const micro = sharesFor(-100_000n, 7_777n);
+    expect(micro).toBeLessThan(0n);
+    expect(absShares(micro)).toBeLessThanOrEqual((100_000n * MICRO) / 7_777n);
+  });
+
+  it("rounds a whole-share short down in magnitude too", () => {
+    expect(sharesFor(-481_200n, 40_000n, { fractional: false })).toBe(-12n * MICRO);
+  });
+
+  it("refuses to make a negative value a slice of a pie", () => {
+    // A short cannot be part of a whole. The chart splits them out; this guard
+    // makes a mistake loud rather than a donut that sums to something odd.
+    expect(() => allocateWeightsPpm([100n, -50n], 50n)).toThrow(/cannot be a share of a whole/);
+  });
+
+  it("gives absShares the magnitude either way", () => {
+    expect(absShares(-5n)).toBe(5n);
+    expect(absShares(5n)).toBe(5n);
+    expect(absShares(0n)).toBe(0n);
   });
 });

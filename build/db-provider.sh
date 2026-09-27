@@ -15,8 +15,8 @@ cd "$(dirname "$0")/.."
 
 TARGET="${1:-}"
 case "${TARGET}" in
-    sqlite)     ADAPTER_PKG="@prisma/adapter-better-sqlite3"; ADAPTER_CLASS="PrismaBetterSqlite3" ;;
-    postgresql) ADAPTER_PKG="@prisma/adapter-pg";             ADAPTER_CLASS="PrismaPg" ;;
+    sqlite)     EXAMPLE_URL="file:./tradingsg.db" ;;
+    postgresql) EXAMPLE_URL="postgres://user:pass@host/db?sslmode=require" ;;
     *)
         echo "usage: $0 {sqlite|postgresql}" >&2
         exit 1
@@ -31,10 +31,10 @@ fi
 
 # Exactly one line in the datasource block, matched by its full text rather than
 # by a bare word, so this can never touch the generator block or a comment.
-python3 - "$TARGET" "$ADAPTER_PKG" "$ADAPTER_CLASS" <<'PY'
+python3 - "$TARGET" <<'PY'
 import pathlib, re, sys
 
-target, adapter_pkg, adapter_class = sys.argv[1], sys.argv[2], sys.argv[3]
+target = sys.argv[1]
 
 schema = pathlib.Path("prisma/schema.prisma")
 text = schema.read_text()
@@ -43,22 +43,17 @@ if block is None:
     raise SystemExit("Could not find the datasource block. Refusing to guess.")
 schema.write_text(text.replace(block.group(0), f'datasource db {{\n  provider = "{target}"\n}}'))
 
-db = pathlib.Path("src/server/db.ts")
-src = db.read_text()
-src = re.sub(r'import \{ Prisma\w+ \} from "@prisma/adapter-[a-z0-9-]+";',
-             f'import {{ {adapter_class} }} from "{adapter_pkg}";', src, count=1)
-src = re.sub(r'new Prisma\w+\(\{ url \}\)', f'new {adapter_class}({{ url }})', src, count=1)
-db.write_text(src)
-
-cfg = pathlib.Path("prisma.config.ts")
-print(f"switched schema and src/server/db.ts to {target} ({adapter_class})")
+print(f"switched prisma/schema.prisma to {target}")
 PY
 
 echo ""
 echo "Next:"
-echo "  1. npm install ${ADAPTER_PKG}"
-echo "  2. set DATABASE_URL in .env to a ${TARGET} connection string"
-echo "  3. rm -rf prisma/migrations && npx prisma migrate dev --name init"
+echo "  1. set DATABASE_URL to a ${TARGET} connection string, e.g."
+echo "       ${EXAMPLE_URL}"
+echo "  2. rm -rf prisma/migrations && npx prisma migrate dev --name init"
 echo ""
-echo "Step 3 discards the SQLite migration history. That is intended — a"
-echo "migration file is dialect-specific SQL and cannot be replayed on the other."
+echo "Both adapters are installed and the driver is chosen from DATABASE_URL's"
+echo "scheme at runtime, so no source file needs editing."
+echo ""
+echo "Step 2 discards the old migration history. That is intended — a migration"
+echo "file is dialect-specific SQL and cannot be replayed on the other engine."

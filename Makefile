@@ -101,6 +101,14 @@ db-provider-postgres:
 db-provider-sqlite:
 	bash build/db-provider.sh sqlite
 
+## ci-postgres: prove the PostgreSQL deploy path works, with no server to install
+#
+# Runs the generated Postgres DDL and the application's own client against a
+# real PostgreSQL 18 (PGlite over a TCP socket). This is the difference between
+# "the schema looks portable" and "it has been run" — see docs/deployment.md.
+ci-postgres:
+	bash build/ci-postgres.sh
+
 ## worker: run the scheduled jobs locally (node-cron)
 worker:
 	$(NPM) run worker

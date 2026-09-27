@@ -1,4 +1,5 @@
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
+import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@/generated/prisma/client";
 
 /**
@@ -41,9 +42,40 @@ export function createPrismaClient(url = process.env.DATABASE_URL): PrismaClient
     );
   }
   return new PrismaClient({
-    adapter: new PrismaBetterSqlite3({ url }),
+    adapter: adapterFor(url),
     log: process.env.NODE_ENV === "development" ? ["warn", "error"] : ["error"],
   });
+}
+
+/**
+ * The adapter is chosen from the connection string, not from a build flag and
+ * not by rewriting this file.
+ *
+ * build/db-provider.sh used to patch the adapter import when switching dialects
+ * — and it patched src/server/db.ts, which stopped containing the adapter when
+ * the client factory moved here. Its regexes then matched nothing, silently, so
+ * `make db-provider-postgres` reported success while leaving the runtime on
+ * SQLite: the schema said PostgreSQL, the driver opened a file, and the failure
+ * surfaced as an unrelated error at the first query. Deriving it from the URL
+ * removes the second place that had to agree.
+ *
+ * Note that the Prisma *schema*'s `provider` still has to match — that one is
+ * genuinely build-time, because it decides the SQL that gets generated. See
+ * docs/deployment.md.
+ */
+function adapterFor(url: string) {
+  if (url.startsWith("file:")) return new PrismaBetterSqlite3({ url });
+  if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
+    // One connection per serverless invocation. A pool would be worse than
+    // useless here: each invocation is its own short-lived process, so pooled
+    // connections are never reused and simply accumulate against the server's
+    // limit until it starts refusing new ones. Pooling belongs in front of
+    // Postgres (PgBouncer, or Neon's pooled endpoint), not in the function.
+    return new PrismaPg({ connectionString: url, max: 1 });
+  }
+  throw new Error(
+    `DATABASE_URL must start with file: (SQLite) or postgres:// (PostgreSQL). Got: ${url.slice(0, 12)}…`,
+  );
 }
 
 const PRAGMAS = [

@@ -1,0 +1,135 @@
+# Drives the scheduled jobs by HTTP, as an alternative to Vercel Cron.
+#
+# Why this exists: Vercel's Hobby plan allows two cron jobs, triggered about
+# once a day. vercel.json declares seven, four of which need to run far more
+# often than that — prices every 15 minutes during market hours, scheduled
+# reports every ten. On Hobby those schedules are not honoured, and the jobs
+# quietly do not run. Actions minutes are free on a public repository, and the
+# cron endpoints already authenticate with a bearer token, so this costs
+# nothing and works on any plan.
+#
+# Requires two repository secrets (Settings → Secrets and variables → Actions):
+#   APP_URL      https://your-deployment.vercel.app   (no trailing slash)
+#   CRON_SECRET  the same value set in the Vercel project
+#
+# If you are on Vercel Pro, delete this file and let vercel.json do the work.
+name: Scheduled jobs
+
+on:
+  schedule:
+    # Every 15 minutes. Individual jobs below decide whether they are due, so
+    # one schedule can drive all of them without seven separate workflows.
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Run a single job now"
+        required: false
+        type: choice
+        options:
+          - refresh-prices
+          - close-prices
+          - snapshot-valuations
+          - snapshot-leaderboard
+          - build-weekly-report
+          - send-scheduled-reports
+          - run-notifications
+          - export-backup
+          - housekeeping
+
+concurrency:
+  # A run that overlaps its predecessor would have two processes writing the
+  # same valuations. The jobs are idempotent, so cancelling the older one is
+  # safe and keeps the queue from backing up.
+  group: scheduled-jobs
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Work out which jobs are due
+        id: due
+        env:
+          MANUAL: ${{ inputs.job }}
+        run: |
+          if [ -n "${MANUAL}" ]; then
+            echo "jobs=${MANUAL}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # UTC, which is what the runner gives us. The application itself
+          # resolves the competition's own timezone; these windows only need to
+          # be generous enough not to miss it.
+          hour=$(date -u +%-H)
+          minute=$(date -u +%-M)
+          dow=$(date -u +%u)   # 1 = Monday
+
+          jobs=""
+          # Market hours, weekdays: quotes and due report sends.
+          if [ "$dow" -le 5 ] && [ "$hour" -ge 7 ] && [ "$hour" -le 21 ]; then
+            jobs="refresh-prices"
+          fi
+          jobs="${jobs} send-scheduled-reports"
+
+          # Official closes, then the valuations and leaderboard that read them.
+          if [ "$dow" -le 5 ] && [ "$hour" -eq 21 ] && [ "$minute" -lt 15 ]; then
+            jobs="${jobs} close-prices"
+          fi
+          if [ "$hour" -eq 22 ] && [ "$minute" -lt 15 ]; then
+            jobs="${jobs} snapshot-valuations"
+          fi
+          if [ "$hour" -eq 22 ] && [ "$minute" -ge 15 ] && [ "$minute" -lt 30 ]; then
+            jobs="${jobs} snapshot-leaderboard"
+          fi
+          # The day's CSV backup, after the valuations it records.
+          if [ "$hour" -eq 22 ] && [ "$minute" -ge 45 ]; then
+            jobs="${jobs} export-backup"
+          fi
+          # Monday morning, after Sunday night's leaderboard snapshot exists.
+          if [ "$dow" -eq 1 ] && [ "$hour" -eq 5 ] && [ "$minute" -lt 15 ]; then
+            jobs="${jobs} build-weekly-report"
+          fi
+          if [ "$minute" -lt 15 ]; then
+            jobs="${jobs} run-notifications"
+          fi
+          # Expired sessions, tokens and old job history.
+          if [ "$hour" -eq 2 ] && [ "$minute" -ge 30 ] && [ "$minute" -lt 45 ]; then
+            jobs="${jobs} housekeeping"
+          fi
+
+          echo "jobs=${jobs}" >> "$GITHUB_OUTPUT"
+
+      - name: Call each due job
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          JOBS: ${{ steps.due.outputs.jobs }}
+        run: |
+          if [ -z "${APP_URL}" ] || [ -z "${CRON_SECRET}" ]; then
+            echo "::error::APP_URL and CRON_SECRET must both be set as repository secrets."
+            exit 1
+          fi
+          if [ -z "${JOBS}" ]; then
+            echo "Nothing due this tick."
+            exit 0
+          fi
+
+          failed=0
+          for job in ${JOBS}; do
+            echo "── ${job}"
+            # The body is printed whatever the status: a job that half-ran says
+            # so in its response, and swallowing that is how a silent failure
+            # survives for a week.
+            code=$(curl -sS -o /tmp/out.txt -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer ${CRON_SECRET}" \
+              "${APP_URL}/api/cron/${job}")
+            cat /tmp/out.txt; echo
+            if [ "${code}" != "200" ]; then
+              # 404 is what the route returns for a bad or missing secret, so it
+              # is the likeliest cause of a sudden across-the-board failure.
+              echo "::error::${job} returned ${code} (404 usually means CRON_SECRET does not match)"
+              failed=1
+            fi
+          done
+          exit ${failed}

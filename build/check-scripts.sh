@@ -178,6 +178,15 @@ else
     ok "no Float columns in the schema"
 fi
 
+# 9. Every scheduled job is actually scheduled, with the schedule it declares.
+#    See build/check-cron-drift.py for what this caught.
+if drift=$(python3 build/check-cron-drift.py); then
+    ok "every registered job is scheduled with the schedule it declares"
+else
+    echo "${drift}" | while IFS= read -r line; do echo "  ${line}"; done
+    fail "vercel.json and the job registry disagree"
+fi
+
 echo ""
 if [[ ${FAILED} -eq 0 ]]; then
     echo "check-scripts: green"

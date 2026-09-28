@@ -13,7 +13,7 @@
  * for four days lands in the right state rather than with a four-day hole.
  */
 import cron from "node-cron";
-import { applySqlitePragmas, createPrismaClient } from "../prisma";
+import { createPrismaClient } from "../prisma";
 import { JOBS } from "./registry";
 
 try {
@@ -44,8 +44,6 @@ async function execute(name: string, triggeredBy: "CRON" | "CATCHUP") {
 }
 
 async function main() {
-  await applySqlitePragmas(db);
-
   console.info("TradingSG worker");
   for (const job of JOBS) {
     console.info(`  ${job.cron.padEnd(18)} ${job.name}`);

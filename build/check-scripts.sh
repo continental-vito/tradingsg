@@ -160,7 +160,7 @@ fi
 #    compiles on one provider and fails on the other, and the failure arrives at
 #    deploy time rather than here.
 if grep -qE '^\s*enum\s' prisma/schema.prisma; then
-    fail "prisma/schema.prisma declares a native enum — SQLite has none; use a String plus a Zod union"
+    fail "prisma/schema.prisma declares a native enum — use a String plus a Zod union, as everything else here does"
 else
     ok "schema declares no native enums"
 fi

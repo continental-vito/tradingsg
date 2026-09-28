@@ -7,42 +7,29 @@
 #
 #     make ci-postgres
 #
-# Deliberately NOT part of `make ci`: it rewrites prisma/schema.prisma's
-# provider line while it runs and puts it back afterwards, which is too
-# invasive for the gate that runs on every push. Run it when the schema
-# changes, and before a deploy.
+# `make ci` already runs the whole suite on PGlite in-process. This is the
+# additional check that the DDL `prisma migrate deploy` will apply to the hosted
+# database is the DDL the schema describes, over a real wire connection. Run it
+# when the schema changes, and before a deploy.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PORT="${PG_PORT:-5433}"
 DDL="$(mktemp -t tradingsg-pg-ddl)"
 SERVER_PID=""
-ORIGINAL_PROVIDER="$(grep -oE '^  provider = "(sqlite|postgresql)"' prisma/schema.prisma | head -1 | cut -d'"' -f2)"
 
 cleanup() {
     local status=$?
     [[ -n "${SERVER_PID}" ]] && kill "${SERVER_PID}" 2>/dev/null || true
     rm -f "${DDL}"
-    # Always put the schema back, including on failure: leaving the repo on the
-    # other dialect would make the next `make ci` fail for an unrelated reason.
-    local now
-    now="$(grep -oE '^  provider = "(sqlite|postgresql)"' prisma/schema.prisma | head -1 | cut -d'"' -f2)"
-    if [[ "${now}" != "${ORIGINAL_PROVIDER}" ]]; then
-        bash build/db-provider.sh "${ORIGINAL_PROVIDER}" >/dev/null
-        npx prisma generate >/dev/null 2>&1
-        echo "restored schema provider to ${ORIGINAL_PROVIDER}"
-    fi
     exit "${status}"
 }
 trap cleanup EXIT
 
 echo "── PostgreSQL deploy check ───────────────────────────────────────────────"
 
-if [[ "${ORIGINAL_PROVIDER}" != "postgresql" ]]; then
-    bash build/db-provider.sh postgresql >/dev/null
-fi
 npx prisma generate >/dev/null
-echo "  ✓ Prisma client generates for postgresql"
+echo "  ✓ Prisma client generates"
 
 npx prisma migrate diff --from-empty --to-schema prisma/schema.prisma --script > "${DDL}" 2>/dev/null
 tables="$(grep -c 'CREATE TABLE' "${DDL}" || true)"

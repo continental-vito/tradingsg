@@ -11,8 +11,8 @@ NPM ?= npm
 .DEFAULT_GOAL := help
 
 .PHONY: help ci install dev build start test test-watch lint fmt fmt-check typecheck \
-        db-migrate db-reset db-seed db-studio db-clear-demo db-provider-postgres db-provider-sqlite \
-        worker job hooks clean
+        db-migrate db-reset db-seed db-studio db-clear-demo dev-db \
+        ci-postgres worker job hooks clean
 
 ## help: list every target
 help:
@@ -93,13 +93,13 @@ db-studio:
 db-clear-demo:
 	npx tsx prisma/clear-demo.ts
 
-## db-provider-postgres: point the schema at PostgreSQL (see docs/deployment.md)
-db-provider-postgres:
-	bash build/db-provider.sh postgresql
-
-## db-provider-sqlite: point the schema back at SQLite
-db-provider-sqlite:
-	bash build/db-provider.sh sqlite
+## dev-db: a local PostgreSQL, with nothing to install (Ctrl-C to stop)
+#
+# PGlite — PostgreSQL 18 compiled to WASM — on 127.0.0.1:5433, persisting to
+# .pgdata/. Run it in its own terminal. Development, the tests and production
+# then all speak PostgreSQL, which they did not when local dev was SQLite.
+dev-db:
+	node build/pg-server.mjs 5433 .pgdata
 
 ## ci-postgres: prove the PostgreSQL deploy path works, with no server to install
 #

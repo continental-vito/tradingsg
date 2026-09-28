@@ -39,3 +39,6 @@ next-env.d.ts
 .DS_Store
 .idea/
 .vscode/
+
+# Local PostgreSQL data, written by `make dev-db`.
+.pgdata/

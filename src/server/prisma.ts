@@ -1,4 +1,3 @@
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@/generated/prisma/client";
 
@@ -64,7 +63,15 @@ export function createPrismaClient(url = process.env.DATABASE_URL): PrismaClient
  * docs/deployment.md.
  */
 function adapterFor(url: string) {
-  if (url.startsWith("file:")) return new PrismaBetterSqlite3({ url });
+  if (url.startsWith("file:")) {
+    throw new Error(
+      "DATABASE_URL points at a SQLite file, but this project runs on PostgreSQL " +
+        "everywhere — development, tests and production alike.\n" +
+        "For a local database with nothing to install, run `make dev-db` in another " +
+        "terminal and set:\n" +
+        "  DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5433/postgres",
+    );
+  }
   if (url.startsWith("postgres://") || url.startsWith("postgresql://")) {
     // One connection per serverless invocation. A pool would be worse than
     // useless here: each invocation is its own short-lived process, so pooled
@@ -74,20 +81,6 @@ function adapterFor(url: string) {
     return new PrismaPg({ connectionString: url, max: 1 });
   }
   throw new Error(
-    `DATABASE_URL must start with file: (SQLite) or postgres:// (PostgreSQL). Got: ${url.slice(0, 12)}…`,
+    `DATABASE_URL must be a postgres:// connection string. Got: ${url.slice(0, 12)}…`,
   );
-}
-
-const PRAGMAS = [
-  "PRAGMA journal_mode = WAL;",
-  "PRAGMA busy_timeout = 5000;",
-  "PRAGMA foreign_keys = ON;",
-  "PRAGMA synchronous = NORMAL;",
-];
-
-export async function applySqlitePragmas(client: PrismaClient): Promise<void> {
-  if (!(process.env.DATABASE_URL ?? "").startsWith("file:")) return;
-  for (const pragma of PRAGMAS) {
-    await client.$executeRawUnsafe(pragma);
-  }
 }

@@ -10,8 +10,7 @@
  * Relying on it here would make the correctness of a destructive operation
  * depend on a pragma set somewhere else.
  */
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
-import { PrismaClient } from "../src/generated/prisma/client";
+import { createPrismaClient } from "../src/server/prisma";
 
 try {
   process.loadEnvFile(".env");
@@ -22,7 +21,7 @@ try {
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is not set.");
 
-const db = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url }) });
+const db = createPrismaClient(url);
 
 async function main() {
   const competitions = await db.competition.findMany({

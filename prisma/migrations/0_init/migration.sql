@@ -1,6 +1,9 @@
+-- CreateSchema
+CREATE SCHEMA IF NOT EXISTS "public";
+
 -- CreateTable
 CREATE TABLE "User" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "passwordHash" TEXT NOT NULL,
     "firstName" TEXT NOT NULL,
@@ -10,43 +13,47 @@ CREATE TABLE "User" (
     "role" TEXT NOT NULL DEFAULT 'PARTICIPANT',
     "isDisabled" BOOLEAN NOT NULL DEFAULT false,
     "isDemo" BOOLEAN NOT NULL DEFAULT false,
-    "lastLoginAt" DATETIME,
+    "lastLoginAt" TIMESTAMP(3),
     "failedLoginCount" INTEGER NOT NULL DEFAULT 0,
-    "lockedUntil" DATETIME,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
-    "deletedAt" DATETIME
+    "lockedUntil" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "deletedAt" TIMESTAMP(3),
+
+    CONSTRAINT "User_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Session" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "tokenHash" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
-    "expiresAt" DATETIME NOT NULL,
-    "lastSeenAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "expiresAt" TIMESTAMP(3) NOT NULL,
+    "lastSeenAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "userAgent" TEXT,
     "ipHash" TEXT,
-    "revokedAt" DATETIME,
+    "revokedAt" TIMESTAMP(3),
     "revokedReason" TEXT,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "Session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Session_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "PasswordResetToken" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "tokenHash" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
-    "expiresAt" DATETIME NOT NULL,
-    "consumedAt" DATETIME,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "PasswordResetToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    "expiresAt" TIMESTAMP(3) NOT NULL,
+    "consumedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "PasswordResetToken_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Competition" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "slug" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "description" TEXT,
@@ -56,24 +63,26 @@ CREATE TABLE "Competition" (
     "timezone" TEXT NOT NULL DEFAULT 'Europe/Berlin',
     "weekStartsOn" INTEGER NOT NULL DEFAULT 1,
     "startingCapitalCents" BIGINT NOT NULL DEFAULT 10000000,
-    "startsAt" DATETIME NOT NULL,
-    "endsAt" DATETIME NOT NULL,
+    "startsAt" TIMESTAMP(3) NOT NULL,
+    "endsAt" TIMESTAMP(3) NOT NULL,
     "startDate" TEXT NOT NULL,
     "endDate" TEXT NOT NULL,
-    "finalizedAt" DATETIME,
+    "finalizedAt" TIMESTAMP(3),
     "isDemo" BOOLEAN NOT NULL DEFAULT false,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
-    "deletedAt" DATETIME
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "deletedAt" TIMESTAMP(3),
+
+    CONSTRAINT "Competition_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "CompetitionSettings" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "competitionId" TEXT NOT NULL,
     "revision" INTEGER NOT NULL DEFAULT 1,
-    "effectiveFrom" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "supersededAt" DATETIME,
+    "effectiveFrom" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "supersededAt" TIMESTAMP(3),
     "tradingMode" TEXT NOT NULL DEFAULT 'ANYTIME',
     "periodUnit" TEXT NOT NULL DEFAULT 'WEEK',
     "maxChangesPerPeriod" INTEGER NOT NULL DEFAULT 1,
@@ -101,6 +110,8 @@ CREATE TABLE "CompetitionSettings" (
     "maxQuoteAgeSeconds" INTEGER NOT NULL DEFAULT 900,
     "allowShort" BOOLEAN NOT NULL DEFAULT false,
     "allowNegativeCash" BOOLEAN NOT NULL DEFAULT false,
+    "maxShortPositionPpm" INTEGER NOT NULL DEFAULT 200000,
+    "maxGrossExposurePpm" INTEGER NOT NULL DEFAULT 1500000,
     "weeklyReportEnabled" BOOLEAN NOT NULL DEFAULT true,
     "leaderboardVisibility" TEXT NOT NULL DEFAULT 'ALL',
     "leaderboardTopN" INTEGER,
@@ -111,27 +122,29 @@ CREATE TABLE "CompetitionSettings" (
     "notifyEnteredTopThree" BOOLEAN NOT NULL DEFAULT true,
     "notifyOvertaken" BOOLEAN NOT NULL DEFAULT false,
     "notifyCompetitionEnd" BOOLEAN NOT NULL DEFAULT true,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
-    CONSTRAINT "CompetitionSettings_competitionId_fkey" FOREIGN KEY ("competitionId") REFERENCES "Competition" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "CompetitionSettings_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "TradingWindow" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "competitionId" TEXT NOT NULL,
     "label" TEXT NOT NULL,
-    "opensAt" DATETIME NOT NULL,
-    "closesAt" DATETIME NOT NULL,
+    "opensAt" TIMESTAMP(3) NOT NULL,
+    "closesAt" TIMESTAMP(3) NOT NULL,
     "isActive" BOOLEAN NOT NULL DEFAULT true,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
-    CONSTRAINT "TradingWindow_competitionId_fkey" FOREIGN KEY ("competitionId") REFERENCES "Competition" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "TradingWindow_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Stock" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "symbol" TEXT NOT NULL,
     "providerSymbol" TEXT,
     "name" TEXT NOT NULL,
@@ -142,32 +155,34 @@ CREATE TABLE "Stock" (
     "isActive" BOOLEAN NOT NULL DEFAULT true,
     "isDemo" BOOLEAN NOT NULL DEFAULT false,
     "lastPriceCents" BIGINT,
-    "lastPriceAt" DATETIME,
+    "lastPriceAt" TIMESTAMP(3),
     "lastPriceSource" TEXT,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
-    "deletedAt" DATETIME
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "deletedAt" TIMESTAMP(3),
+
+    CONSTRAINT "Stock_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "CompetitionStock" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "competitionId" TEXT NOT NULL,
     "stockId" TEXT NOT NULL,
     "isTradable" BOOLEAN NOT NULL DEFAULT true,
     "maxWeightPpm" INTEGER,
     "sortOrder" INTEGER NOT NULL DEFAULT 0,
-    "addedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "removedAt" DATETIME,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
-    CONSTRAINT "CompetitionStock_competitionId_fkey" FOREIGN KEY ("competitionId") REFERENCES "Competition" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "CompetitionStock_stockId_fkey" FOREIGN KEY ("stockId") REFERENCES "Stock" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    "addedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "removedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "CompetitionStock_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "PriceHistory" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "stockId" TEXT NOT NULL,
     "tradeDate" TEXT NOT NULL,
     "closeCents" BIGINT NOT NULL,
@@ -179,14 +194,15 @@ CREATE TABLE "PriceHistory" (
     "source" TEXT NOT NULL DEFAULT 'mock',
     "isSynthetic" BOOLEAN NOT NULL DEFAULT false,
     "revision" INTEGER NOT NULL DEFAULT 1,
-    "supersededAt" DATETIME,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "PriceHistory_stockId_fkey" FOREIGN KEY ("stockId") REFERENCES "Stock" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    "supersededAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "PriceHistory_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Participant" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "competitionId" TEXT NOT NULL,
     "displayName" TEXT NOT NULL,
@@ -194,20 +210,20 @@ CREATE TABLE "Participant" (
     "status" TEXT NOT NULL DEFAULT 'REGISTERED',
     "adjustedByAdmin" BOOLEAN NOT NULL DEFAULT false,
     "disqualifiedReason" TEXT,
-    "joinedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "activatedAt" DATETIME,
-    "withdrawnAt" DATETIME,
+    "joinedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "activatedAt" TIMESTAMP(3),
+    "withdrawnAt" TIMESTAMP(3),
     "isDemo" BOOLEAN NOT NULL DEFAULT false,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
-    "deletedAt" DATETIME,
-    CONSTRAINT "Participant_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "Participant_competitionId_fkey" FOREIGN KEY ("competitionId") REFERENCES "Competition" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    "deletedAt" TIMESTAMP(3),
+
+    CONSTRAINT "Participant_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Portfolio" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "participantId" TEXT NOT NULL,
     "competitionId" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'DRAFT',
@@ -219,34 +235,34 @@ CREATE TABLE "Portfolio" (
     "netFlowCents" BIGINT NOT NULL DEFAULT 0,
     "transactionSeq" INTEGER NOT NULL DEFAULT 0,
     "rebalanceCount" INTEGER NOT NULL DEFAULT 0,
-    "setupCompletedAt" DATETIME,
-    "lastRebalancedAt" DATETIME,
+    "setupCompletedAt" TIMESTAMP(3),
+    "lastRebalancedAt" TIMESTAMP(3),
     "version" INTEGER NOT NULL DEFAULT 0,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
-    CONSTRAINT "Portfolio_participantId_fkey" FOREIGN KEY ("participantId") REFERENCES "Participant" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "Portfolio_competitionId_fkey" FOREIGN KEY ("competitionId") REFERENCES "Competition" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Portfolio_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Holding" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "portfolioId" TEXT NOT NULL,
     "stockId" TEXT NOT NULL,
     "microShares" BIGINT NOT NULL DEFAULT 0,
     "costBasisCents" BIGINT NOT NULL DEFAULT 0,
     "realizedPnlCents" BIGINT NOT NULL DEFAULT 0,
-    "firstBoughtAt" DATETIME,
-    "lastTradedAt" DATETIME,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
-    CONSTRAINT "Holding_portfolioId_fkey" FOREIGN KEY ("portfolioId") REFERENCES "Portfolio" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "Holding_stockId_fkey" FOREIGN KEY ("stockId") REFERENCES "Stock" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    "firstBoughtAt" TIMESTAMP(3),
+    "lastTradedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Holding_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "RebalanceRequest" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "portfolioId" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'PENDING',
     "idempotencyKey" TEXT NOT NULL,
@@ -259,15 +275,16 @@ CREATE TABLE "RebalanceRequest" (
     "postValueCents" BIGINT,
     "totalFeeCents" BIGINT NOT NULL DEFAULT 0,
     "orderCount" INTEGER NOT NULL DEFAULT 0,
-    "submittedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "committedAt" DATETIME,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "RebalanceRequest_portfolioId_fkey" FOREIGN KEY ("portfolioId") REFERENCES "Portfolio" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    "submittedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "committedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "RebalanceRequest_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Transaction" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "portfolioId" TEXT NOT NULL,
     "participantId" TEXT NOT NULL,
     "stockId" TEXT,
@@ -275,7 +292,7 @@ CREATE TABLE "Transaction" (
     "sequence" INTEGER NOT NULL,
     "type" TEXT NOT NULL,
     "tradeDate" TEXT NOT NULL,
-    "executedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "executedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "microShareDelta" BIGINT NOT NULL DEFAULT 0,
     "priceCents" BIGINT NOT NULL DEFAULT 0,
     "grossCents" BIGINT NOT NULL DEFAULT 0,
@@ -291,21 +308,19 @@ CREATE TABLE "Transaction" (
     "newAllocationPpm" INTEGER,
     "note" TEXT,
     "isDemo" BOOLEAN NOT NULL DEFAULT false,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "Transaction_portfolioId_fkey" FOREIGN KEY ("portfolioId") REFERENCES "Portfolio" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "Transaction_participantId_fkey" FOREIGN KEY ("participantId") REFERENCES "Participant" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "Transaction_stockId_fkey" FOREIGN KEY ("stockId") REFERENCES "Stock" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT "Transaction_rebalanceRequestId_fkey" FOREIGN KEY ("rebalanceRequestId") REFERENCES "RebalanceRequest" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Transaction_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "PortfolioValuation" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "portfolioId" TEXT NOT NULL,
     "participantId" TEXT NOT NULL,
     "competitionId" TEXT NOT NULL,
     "asOfDate" TEXT NOT NULL,
-    "asOfAt" DATETIME NOT NULL,
+    "asOfAt" TIMESTAMP(3) NOT NULL,
     "kind" TEXT NOT NULL,
     "cashCents" BIGINT NOT NULL,
     "holdingsValueCents" BIGINT NOT NULL,
@@ -327,17 +342,15 @@ CREATE TABLE "PortfolioValuation" (
     "stalePriceCount" INTEGER NOT NULL DEFAULT 0,
     "isRankEligible" BOOLEAN NOT NULL DEFAULT true,
     "previousValuationId" TEXT,
-    "computedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "PortfolioValuation_portfolioId_fkey" FOREIGN KEY ("portfolioId") REFERENCES "Portfolio" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "PortfolioValuation_participantId_fkey" FOREIGN KEY ("participantId") REFERENCES "Participant" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "PortfolioValuation_competitionId_fkey" FOREIGN KEY ("competitionId") REFERENCES "Competition" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "PortfolioValuation_previousValuationId_fkey" FOREIGN KEY ("previousValuationId") REFERENCES "PortfolioValuation" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+    "computedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "PortfolioValuation_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "HoldingValuation" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "valuationId" TEXT NOT NULL,
     "stockId" TEXT NOT NULL,
     "microShares" BIGINT NOT NULL,
@@ -351,17 +364,17 @@ CREATE TABLE "HoldingValuation" (
     "weightPpm" INTEGER NOT NULL,
     "positionReturnPpm" INTEGER NOT NULL,
     "dayChangePpm" INTEGER,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "HoldingValuation_valuationId_fkey" FOREIGN KEY ("valuationId") REFERENCES "PortfolioValuation" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "HoldingValuation_stockId_fkey" FOREIGN KEY ("stockId") REFERENCES "Stock" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "HoldingValuation_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "LeaderboardSnapshot" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "competitionId" TEXT NOT NULL,
     "asOfDate" TEXT NOT NULL,
-    "asOfAt" DATETIME NOT NULL,
+    "asOfAt" TIMESTAMP(3) NOT NULL,
     "kind" TEXT NOT NULL,
     "weekNumber" INTEGER,
     "periodStartDate" TEXT,
@@ -373,15 +386,15 @@ CREATE TABLE "LeaderboardSnapshot" (
     "worstReturnPpm" INTEGER NOT NULL,
     "priceQuality" TEXT NOT NULL DEFAULT 'OK',
     "previousSnapshotId" TEXT,
-    "computedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "LeaderboardSnapshot_competitionId_fkey" FOREIGN KEY ("competitionId") REFERENCES "Competition" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "LeaderboardSnapshot_previousSnapshotId_fkey" FOREIGN KEY ("previousSnapshotId") REFERENCES "LeaderboardSnapshot" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+    "computedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "LeaderboardSnapshot_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "LeaderboardSnapshotEntry" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "snapshotId" TEXT NOT NULL,
     "participantId" TEXT NOT NULL,
     "valuationId" TEXT,
@@ -400,15 +413,14 @@ CREATE TABLE "LeaderboardSnapshotEntry" (
     "weeklyReturnPpm" INTEGER,
     "positionCount" INTEGER NOT NULL DEFAULT 0,
     "transactionCount" INTEGER NOT NULL DEFAULT 0,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "LeaderboardSnapshotEntry_snapshotId_fkey" FOREIGN KEY ("snapshotId") REFERENCES "LeaderboardSnapshot" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "LeaderboardSnapshotEntry_participantId_fkey" FOREIGN KEY ("participantId") REFERENCES "Participant" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "LeaderboardSnapshotEntry_valuationId_fkey" FOREIGN KEY ("valuationId") REFERENCES "PortfolioValuation" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "LeaderboardSnapshotEntry_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "WeeklyReport" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "competitionId" TEXT NOT NULL,
     "isoWeek" TEXT NOT NULL,
     "weekNumber" INTEGER NOT NULL,
@@ -430,21 +442,20 @@ CREATE TABLE "WeeklyReport" (
     "recipientCount" INTEGER NOT NULL DEFAULT 0,
     "sentCount" INTEGER NOT NULL DEFAULT 0,
     "failedCount" INTEGER NOT NULL DEFAULT 0,
-    "scheduledFor" DATETIME,
-    "builtAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "sendStartedAt" DATETIME,
-    "sentAt" DATETIME,
+    "scheduledFor" TIMESTAMP(3),
+    "builtAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "sendStartedAt" TIMESTAMP(3),
+    "sentAt" TIMESTAMP(3),
     "isDemo" BOOLEAN NOT NULL DEFAULT false,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
-    CONSTRAINT "WeeklyReport_competitionId_fkey" FOREIGN KEY ("competitionId") REFERENCES "Competition" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "WeeklyReport_snapshotId_fkey" FOREIGN KEY ("snapshotId") REFERENCES "LeaderboardSnapshot" ("id") ON DELETE RESTRICT ON UPDATE CASCADE,
-    CONSTRAINT "WeeklyReport_previousSnapshotId_fkey" FOREIGN KEY ("previousSnapshotId") REFERENCES "LeaderboardSnapshot" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "WeeklyReport_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "WeeklyReportEntry" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "reportId" TEXT NOT NULL,
     "participantId" TEXT NOT NULL,
     "rank" INTEGER,
@@ -473,17 +484,17 @@ CREATE TABLE "WeeklyReportEntry" (
     "contentHash" TEXT NOT NULL,
     "sendStatus" TEXT NOT NULL DEFAULT 'PENDING',
     "skipReason" TEXT,
-    "sentAt" DATETIME,
+    "sentAt" TIMESTAMP(3),
     "emailLogId" TEXT,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
-    CONSTRAINT "WeeklyReportEntry_reportId_fkey" FOREIGN KEY ("reportId") REFERENCES "WeeklyReport" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "WeeklyReportEntry_participantId_fkey" FOREIGN KEY ("participantId") REFERENCES "Participant" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "WeeklyReportEntry_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "EmailLog" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "dedupeKey" TEXT NOT NULL,
     "reportId" TEXT,
     "participantId" TEXT,
@@ -500,17 +511,17 @@ CREATE TABLE "EmailLog" (
     "providerMessageId" TEXT,
     "error" TEXT,
     "isTest" BOOLEAN NOT NULL DEFAULT false,
-    "queuedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "sentAt" DATETIME,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
-    CONSTRAINT "EmailLog_reportId_fkey" FOREIGN KEY ("reportId") REFERENCES "WeeklyReport" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
-    CONSTRAINT "EmailLog_participantId_fkey" FOREIGN KEY ("participantId") REFERENCES "Participant" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+    "queuedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "sentAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "EmailLog_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "Notification" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "type" TEXT NOT NULL,
     "severity" TEXT NOT NULL DEFAULT 'INFO',
@@ -519,35 +530,37 @@ CREATE TABLE "Notification" (
     "linkUrl" TEXT,
     "dataJson" TEXT,
     "dedupeKey" TEXT NOT NULL,
-    "readAt" DATETIME,
-    "dismissedAt" DATETIME,
-    "expiresAt" DATETIME,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    "readAt" TIMESTAMP(3),
+    "dismissedAt" TIMESTAMP(3),
+    "expiresAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Notification_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "NotificationPreference" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "type" TEXT NOT NULL,
     "channel" TEXT NOT NULL,
     "enabled" BOOLEAN NOT NULL DEFAULT true,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL,
-    CONSTRAINT "NotificationPreference_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "NotificationPreference_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "JobRun" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "jobName" TEXT NOT NULL,
     "runKey" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'RUNNING',
     "triggeredBy" TEXT NOT NULL DEFAULT 'CRON',
-    "startedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "heartbeatAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "finishedAt" DATETIME,
+    "startedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "heartbeatAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "finishedAt" TIMESTAMP(3),
     "durationMs" INTEGER,
     "itemsProcessed" INTEGER NOT NULL DEFAULT 0,
     "itemsFailed" INTEGER NOT NULL DEFAULT 0,
@@ -555,13 +568,32 @@ CREATE TABLE "JobRun" (
     "error" TEXT,
     "hostname" TEXT,
     "attempt" INTEGER NOT NULL DEFAULT 1,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" DATETIME NOT NULL
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "JobRun_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "DataExport" (
+    "id" TEXT NOT NULL,
+    "competitionId" TEXT NOT NULL,
+    "asOfDate" TEXT NOT NULL,
+    "kind" TEXT NOT NULL,
+    "filename" TEXT NOT NULL,
+    "content" TEXT NOT NULL,
+    "rowCount" INTEGER NOT NULL DEFAULT 0,
+    "byteSize" INTEGER NOT NULL DEFAULT 0,
+    "checksum" TEXT NOT NULL,
+    "triggeredBy" TEXT NOT NULL DEFAULT 'CRON',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "DataExport_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
 CREATE TABLE "AuditLog" (
-    "id" TEXT NOT NULL PRIMARY KEY,
+    "id" TEXT NOT NULL,
     "actorUserId" TEXT,
     "actorRole" TEXT,
     "action" TEXT NOT NULL,
@@ -571,8 +603,9 @@ CREATE TABLE "AuditLog" (
     "afterJson" TEXT,
     "ipHash" TEXT,
     "userAgent" TEXT,
-    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "AuditLog_actorUserId_fkey" FOREIGN KEY ("actorUserId") REFERENCES "User" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "AuditLog_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
@@ -783,6 +816,12 @@ CREATE INDEX "JobRun_status_heartbeatAt_idx" ON "JobRun"("status", "heartbeatAt"
 CREATE UNIQUE INDEX "JobRun_jobName_runKey_key" ON "JobRun"("jobName", "runKey");
 
 -- CreateIndex
+CREATE INDEX "DataExport_competitionId_asOfDate_idx" ON "DataExport"("competitionId", "asOfDate");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "DataExport_competitionId_asOfDate_kind_key" ON "DataExport"("competitionId", "asOfDate", "kind");
+
+-- CreateIndex
 CREATE INDEX "AuditLog_entityType_entityId_createdAt_idx" ON "AuditLog"("entityType", "entityId", "createdAt");
 
 -- CreateIndex
@@ -790,3 +829,124 @@ CREATE INDEX "AuditLog_actorUserId_createdAt_idx" ON "AuditLog"("actorUserId", "
 
 -- CreateIndex
 CREATE INDEX "AuditLog_createdAt_idx" ON "AuditLog"("createdAt");
+
+-- AddForeignKey
+ALTER TABLE "Session" ADD CONSTRAINT "Session_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PasswordResetToken" ADD CONSTRAINT "PasswordResetToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CompetitionSettings" ADD CONSTRAINT "CompetitionSettings_competitionId_fkey" FOREIGN KEY ("competitionId") REFERENCES "Competition"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TradingWindow" ADD CONSTRAINT "TradingWindow_competitionId_fkey" FOREIGN KEY ("competitionId") REFERENCES "Competition"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CompetitionStock" ADD CONSTRAINT "CompetitionStock_competitionId_fkey" FOREIGN KEY ("competitionId") REFERENCES "Competition"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CompetitionStock" ADD CONSTRAINT "CompetitionStock_stockId_fkey" FOREIGN KEY ("stockId") REFERENCES "Stock"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PriceHistory" ADD CONSTRAINT "PriceHistory_stockId_fkey" FOREIGN KEY ("stockId") REFERENCES "Stock"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Participant" ADD CONSTRAINT "Participant_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Participant" ADD CONSTRAINT "Participant_competitionId_fkey" FOREIGN KEY ("competitionId") REFERENCES "Competition"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Portfolio" ADD CONSTRAINT "Portfolio_participantId_fkey" FOREIGN KEY ("participantId") REFERENCES "Participant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Portfolio" ADD CONSTRAINT "Portfolio_competitionId_fkey" FOREIGN KEY ("competitionId") REFERENCES "Competition"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Holding" ADD CONSTRAINT "Holding_portfolioId_fkey" FOREIGN KEY ("portfolioId") REFERENCES "Portfolio"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Holding" ADD CONSTRAINT "Holding_stockId_fkey" FOREIGN KEY ("stockId") REFERENCES "Stock"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "RebalanceRequest" ADD CONSTRAINT "RebalanceRequest_portfolioId_fkey" FOREIGN KEY ("portfolioId") REFERENCES "Portfolio"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Transaction" ADD CONSTRAINT "Transaction_portfolioId_fkey" FOREIGN KEY ("portfolioId") REFERENCES "Portfolio"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Transaction" ADD CONSTRAINT "Transaction_participantId_fkey" FOREIGN KEY ("participantId") REFERENCES "Participant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Transaction" ADD CONSTRAINT "Transaction_stockId_fkey" FOREIGN KEY ("stockId") REFERENCES "Stock"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Transaction" ADD CONSTRAINT "Transaction_rebalanceRequestId_fkey" FOREIGN KEY ("rebalanceRequestId") REFERENCES "RebalanceRequest"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PortfolioValuation" ADD CONSTRAINT "PortfolioValuation_portfolioId_fkey" FOREIGN KEY ("portfolioId") REFERENCES "Portfolio"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PortfolioValuation" ADD CONSTRAINT "PortfolioValuation_participantId_fkey" FOREIGN KEY ("participantId") REFERENCES "Participant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PortfolioValuation" ADD CONSTRAINT "PortfolioValuation_competitionId_fkey" FOREIGN KEY ("competitionId") REFERENCES "Competition"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PortfolioValuation" ADD CONSTRAINT "PortfolioValuation_previousValuationId_fkey" FOREIGN KEY ("previousValuationId") REFERENCES "PortfolioValuation"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "HoldingValuation" ADD CONSTRAINT "HoldingValuation_valuationId_fkey" FOREIGN KEY ("valuationId") REFERENCES "PortfolioValuation"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "HoldingValuation" ADD CONSTRAINT "HoldingValuation_stockId_fkey" FOREIGN KEY ("stockId") REFERENCES "Stock"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LeaderboardSnapshot" ADD CONSTRAINT "LeaderboardSnapshot_competitionId_fkey" FOREIGN KEY ("competitionId") REFERENCES "Competition"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LeaderboardSnapshot" ADD CONSTRAINT "LeaderboardSnapshot_previousSnapshotId_fkey" FOREIGN KEY ("previousSnapshotId") REFERENCES "LeaderboardSnapshot"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LeaderboardSnapshotEntry" ADD CONSTRAINT "LeaderboardSnapshotEntry_snapshotId_fkey" FOREIGN KEY ("snapshotId") REFERENCES "LeaderboardSnapshot"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LeaderboardSnapshotEntry" ADD CONSTRAINT "LeaderboardSnapshotEntry_participantId_fkey" FOREIGN KEY ("participantId") REFERENCES "Participant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LeaderboardSnapshotEntry" ADD CONSTRAINT "LeaderboardSnapshotEntry_valuationId_fkey" FOREIGN KEY ("valuationId") REFERENCES "PortfolioValuation"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "WeeklyReport" ADD CONSTRAINT "WeeklyReport_competitionId_fkey" FOREIGN KEY ("competitionId") REFERENCES "Competition"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "WeeklyReport" ADD CONSTRAINT "WeeklyReport_snapshotId_fkey" FOREIGN KEY ("snapshotId") REFERENCES "LeaderboardSnapshot"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "WeeklyReport" ADD CONSTRAINT "WeeklyReport_previousSnapshotId_fkey" FOREIGN KEY ("previousSnapshotId") REFERENCES "LeaderboardSnapshot"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "WeeklyReportEntry" ADD CONSTRAINT "WeeklyReportEntry_reportId_fkey" FOREIGN KEY ("reportId") REFERENCES "WeeklyReport"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "WeeklyReportEntry" ADD CONSTRAINT "WeeklyReportEntry_participantId_fkey" FOREIGN KEY ("participantId") REFERENCES "Participant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "EmailLog" ADD CONSTRAINT "EmailLog_reportId_fkey" FOREIGN KEY ("reportId") REFERENCES "WeeklyReport"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "EmailLog" ADD CONSTRAINT "EmailLog_participantId_fkey" FOREIGN KEY ("participantId") REFERENCES "Participant"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Notification" ADD CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "NotificationPreference" ADD CONSTRAINT "NotificationPreference_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "DataExport" ADD CONSTRAINT "DataExport_competitionId_fkey" FOREIGN KEY ("competitionId") REFERENCES "Competition"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_actorUserId_fkey" FOREIGN KEY ("actorUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+

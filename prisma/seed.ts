@@ -10,8 +10,7 @@
  * instead of duplicating, so it can be run against an existing database.
  */
 import { hash } from "@node-rs/argon2";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
-import { PrismaClient } from "../src/generated/prisma/client";
+import { createPrismaClient } from "../src/server/prisma";
 import { addDays, dateKeyOf, eachTradingDay } from "../src/lib/dates";
 import { backfillPrices } from "../src/server/jobs/prices";
 import { snapshotLeaderboard } from "../src/server/jobs/leaderboard";
@@ -30,7 +29,7 @@ try {
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is not set. Copy .env.example to .env.");
 
-const db = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url }) });
+const db = createPrismaClient(url);
 
 const TIMEZONE = "Europe/Berlin";
 const STARTING_CAPITAL_CENTS = 10_000_000n; // €100,000.00

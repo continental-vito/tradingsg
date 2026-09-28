@@ -8,7 +8,7 @@ still apply; this file adds to them and overrides them where they disagree.
 ## What this is
 
 An internal virtual stock trading competition. Next.js 16 App Router, React 19,
-TypeScript, Prisma over SQLite locally and PostgreSQL when deployed.
+TypeScript, Prisma over PostgreSQL — the same engine everywhere.
 
 `cd` into this directory for everything. The repository is
 `continental-vito/tradingsg` (public); the folder above this one is not a repo.
@@ -74,7 +74,7 @@ candidate, so `npm install prisma@latest` silently splits the pair.
      ├── email/    ─┤          provider adapters, one file per provider
      └── jobs/      │          scheduled work: CLI, cron worker, HTTP
                     ▼
-              Prisma ── SQLite (local) / PostgreSQL (deployed)
+              Prisma ── PostgreSQL (PGlite locally, Neon deployed)
 ```
 
 ### Everything replaceable is behind an interface
@@ -167,7 +167,7 @@ which is how a weekly report ends up covering six days twice a year.
 
 ### The schema stays portable
 
-No native enums (SQLite has none), no `@db.` annotations. Enum-like columns are
+No native enums, no `@db.` annotations. Enum-like columns are
 `String` with a Zod union in `src/lib/enums.ts` validating at every boundary.
 `build/check-scripts.sh` enforces both.
 
@@ -214,7 +214,7 @@ the same shape.
 
 ## Tests
 
-Vitest, against a real SQLite file rather than mocks — the things most worth
+Vitest, against a real PostgreSQL rather than mocks — the things most worth
 testing here are unique indexes and integer identities, and a mock has neither.
 
 Each test's name says which real failure it guards:

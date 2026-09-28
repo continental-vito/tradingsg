@@ -23,7 +23,7 @@ leaderboard ranked by percentage return.
 ## Quick start
 
 ```bash
-cp .env.example .env          # the defaults work as-is: SQLite, mock prices, emails to disk
+cp .env.example .env          # the defaults work as-is: local Postgres, mock prices, emails to disk
 make install
 make hooks                    # once per clone — installs the pre-push CI gate
 make db-reset                 # apply migrations and seed the demo competition
@@ -65,7 +65,7 @@ Linux runner minutes are free — but the local run is what gates a push.
 
 | Path                                      | What it is                                                                       |
 | ----------------------------------------- | -------------------------------------------------------------------------------- |
-| `prisma/schema.prisma`                    | The database. Written to generate identically on SQLite and PostgreSQL.          |
+| `prisma/schema.prisma`                    | The database. PostgreSQL, the same engine in development, tests and production.  |
 | `prisma/seed.ts`, `prisma/demo/`          | The demo competition, stocks and participants.                                   |
 | `src/app/(public)/`                       | Landing page, sign-up, sign-in, password reset.                                  |
 | `src/app/(participant)/`                  | Onboarding, allocation, dashboard, holdings, leaderboard.                        |
@@ -80,14 +80,15 @@ Linux runner minutes are free — but the local run is what gates a push.
 
 ## Documentation
 
-| Document               | Covers                                                        |
-| ---------------------- | ------------------------------------------------------------- |
-| `CLAUDE.md`            | Commands, architecture, and the rules that are load-bearing.  |
-| `docs/architecture.md` | How a price becomes a leaderboard position.                   |
-| `docs/deployment.md`   | Moving from SQLite to PostgreSQL, and the Vercel cron wiring. |
-| `docs/limitations.md`  | What is deliberately not built.                               |
+| Document               | Covers                                                       |
+| ---------------------- | ------------------------------------------------------------ |
+| `CLAUDE.md`            | Commands, architecture, and the rules that are load-bearing. |
+| `docs/architecture.md` | How a price becomes a leaderboard position.                  |
+| `docs/deployment.md`   | The deployment runbook: Neon, Vercel, and the cron wiring.   |
+| `docs/limitations.md`  | What is deliberately not built.                              |
 
 ## Requirements
 
 Node 22 or newer. No database daemon: development and the test suite run against
-a local SQLite file. Deployment needs PostgreSQL — see `docs/deployment.md`.
+a local PostgreSQL started by `make dev-db`. Deployment is the same engine —
+see `docs/deployment.md`.

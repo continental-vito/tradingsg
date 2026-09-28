@@ -1,8 +1,13 @@
 # Deployment
 
-Local development runs on SQLite with no daemon. **Anything deployed needs
-PostgreSQL** — Vercel's filesystem is ephemeral and read-only, so a SQLite file
-there is lost on every deployment and cannot be written to in between.
+PostgreSQL everywhere: development, the test suite and production all run the
+same engine. This used to be SQLite locally and PostgreSQL when deployed, which
+meant every dialect difference stayed invisible until it reached the hosted
+database — and that the one thing never exercised was the thing production
+depended on.
+
+Locally that costs nothing to set up: `make dev-db` starts PGlite, which is
+PostgreSQL 18 compiled to WASM, with no Docker and no install.
 
 This document is a runbook. Follow it top to bottom.
 
@@ -36,38 +41,19 @@ only if you also send a test run the same day. Send the test to yourself.
 
 ---
 
-## 1. Decide on the database dialect, and commit it
-
-The Prisma schema's `provider` is genuinely build-time: it decides the SQL that
-gets generated, so one build cannot serve both dialects. The deployed branch has
-to be on `postgresql`.
-
-The _driver_ is not build-time. It is chosen at runtime from `DATABASE_URL`'s
-scheme, in `adapterFor()` in `src/server/prisma.ts` — so there is no source file
-to edit and nothing that can disagree with the schema.
+## 1. Check the Postgres path before relying on it
 
 ```bash
 cd ~/Claude/TradingSG/tradingsg-dev
-make ci-postgres        # proves the Postgres path works before you rely on it
-make db-provider-postgres
-rm -rf prisma/migrations
-npx prisma migrate dev --name init    # needs DATABASE_URL — do this after step 3
+make ci            # the whole suite, on real PostgreSQL
+make ci-postgres   # the DDL that `migrate deploy` will apply, over a real wire connection
 ```
 
-Discarding the SQLite migration history is intended. A migration file is
-dialect-specific SQL and cannot be replayed against the other engine; keeping
-both would mean two histories that must never diverge.
-
-### Keeping SQLite for local work
-
-You can, but it means the deployed branch and your working branch differ by the
-provider line, and every `git merge` will touch it. Unless you specifically want
-offline development, it is simpler to point local dev at a Neon **branch** — Neon
-branches are free, instant, and give you a real Postgres that matches production.
-Then `make ci` and the deployment test the same dialect, which is the whole
-argument for doing it.
-
----
+There is no dialect to switch: `prisma/schema.prisma` is already on
+`postgresql`, and `prisma/migrations/` holds the PostgreSQL migration set that
+both the tests and the deployment apply. The driver is chosen from
+`DATABASE_URL`'s scheme at runtime, in `adapterFor()` in
+`src/server/prisma.ts`, so there is no second place that has to agree.
 
 ## 2. Create the database — _you do this one_
 
@@ -100,20 +86,23 @@ DATABASE_URL="postgres://…  (direct)  …?sslmode=require"
 ```
 
 ```bash
-npx prisma migrate dev --name init   # creates the Postgres migration and applies it
-make db-seed                         # stocks, settings, and your admin account
+npx prisma migrate deploy    # applies the committed migration set
+make db-seed                 # stocks, settings, and your admin account
 ```
+
+`migrate deploy`, not `migrate dev`: the migration set is already committed, and
+`dev` would try to author a new one and wants a shadow database to do it.
 
 `make db-seed` is idempotent — safe to run again. It creates
 `admin@example.com` with the password in `prisma/seed.ts`. **Change that
 password immediately after your first login**, or edit `ADMIN_PASSWORD` in the
 seed before running it.
 
-Then commit the dialect switch:
+Seeding fills the competition with ~25 demo participants so no screen is empty.
+Before real people register, clear them:
 
 ```bash
-git add -A && git commit -m "Switch datasource to PostgreSQL for deployment"
-git push origin dev
+make db-clear-demo   # deletes exactly the rows the seed created, and nothing else
 ```
 
 ---
@@ -179,6 +168,20 @@ DATABASE_URL="…direct…" npx prisma migrate deploy
 ```
 
 Do this once before the first deploy, and after any schema change.
+
+### Authoring a new migration later
+
+`prisma migrate dev` needs a shadow database and a second connection, which the
+local PGlite server cannot provide. Author migrations against a **Neon branch**
+instead — they are free and instant:
+
+```bash
+# Neon dashboard → Branches → New branch, then:
+DATABASE_URL="…the branch's direct URL…" npx prisma migrate dev --name add_something
+```
+
+Commit the generated directory. The test suite applies every migration in
+`prisma/migrations/` in order, so a new one is covered automatically.
 
 ---
 

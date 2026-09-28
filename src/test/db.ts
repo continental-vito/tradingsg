@@ -1,42 +1,73 @@
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
+import { PGlite } from "@electric-sql/pglite";
+import { PrismaPGlite } from "pglite-prisma-adapter";
 import { PrismaClient } from "@/generated/prisma/client";
 
 /**
  * A private database per test suite.
  *
- * Real SQLite rather than a mock, because the things most worth testing here
- * are unique indexes, cascade behaviour and integer identities — and a mock has
- * none of them. Migrations are applied with `prisma migrate deploy` so the test
- * runs against the same DDL production will.
+ * Real PostgreSQL rather than a mock, because the things most worth testing
+ * here are unique indexes, cascade behaviour and BigInt identities — and a mock
+ * has none of them. It is the same engine the deployment runs on, which is the
+ * point: these tests used to run on SQLite while production ran on Postgres, so
+ * every dialect difference was invisible until it reached Neon.
+ *
+ * PGlite is PostgreSQL compiled to WASM, in-process and in-memory. No server,
+ * no port, no Docker, and a fresh instance costs about a second.
+ *
+ * The DDL is the committed migrations themselves, read rather than regenerated:
+ * spawning the Prisma CLI per suite cost more than the database did, and
+ * reading the files means the tests run against exactly the SQL that
+ * `prisma migrate deploy` will apply to production. EVERY migration is applied,
+ * in order — reading only the baseline would leave the tests a schema behind
+ * the moment a second migration was added, and passing against the wrong DDL is
+ * worse than failing.
  */
 export interface TestDb {
   db: PrismaClient;
   cleanup: () => Promise<void>;
 }
 
+const MIGRATIONS_DIR = "prisma/migrations";
+
+// Read once per process rather than once per suite.
+let ddl: string | undefined;
+function migrationDdl(): string {
+  if (ddl !== undefined) return ddl;
+
+  // Prisma's directories are timestamp-prefixed, so lexical order is apply
+  // order — the same order `prisma migrate deploy` uses.
+  const dirs = readdirSync(MIGRATIONS_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+
+  const statements = dirs.map((dir) =>
+    readFileSync(join(MIGRATIONS_DIR, dir, "migration.sql"), "utf8"),
+  );
+  ddl = statements.join("\n");
+
+  if (!ddl.includes("CREATE TABLE")) {
+    throw new Error(
+      `${MIGRATIONS_DIR} yielded no CREATE TABLE across ${dirs.length} migration(s). ` +
+        "The test database would be empty and every suite would fail misleadingly.",
+    );
+  }
+  return ddl;
+}
+
 export async function createTestDb(): Promise<TestDb> {
-  const dir = mkdtempSync(join(tmpdir(), "tradingsg-test-"));
-  const file = join(dir, "test.db");
-  const url = `file:${file}`;
+  const client = await PGlite.create();
+  await client.exec(migrationDdl());
 
-  execFileSync("npx", ["prisma", "migrate", "deploy"], {
-    env: { ...process.env, DATABASE_URL: url },
-    stdio: "pipe",
-  });
-
-  const db = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url }) });
-  // Cascades in the schema are inert unless this is on, and it is per-connection.
-  await db.$executeRawUnsafe("PRAGMA foreign_keys = ON;");
+  const db = new PrismaClient({ adapter: new PrismaPGlite(client) });
 
   return {
     db,
     cleanup: async () => {
       await db.$disconnect();
-      rmSync(dir, { recursive: true, force: true });
+      await client.close();
     },
   };
 }

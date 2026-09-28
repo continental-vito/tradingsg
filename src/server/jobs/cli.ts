@@ -9,7 +9,7 @@
  * different way in, which is what makes "run it by hand and see what happens" a
  * real debugging option rather than a separate code path that drifts.
  */
-import { applySqlitePragmas, createPrismaClient } from "../prisma";
+import { createPrismaClient } from "../prisma";
 import { JOBS, findJob } from "./registry";
 
 try {
@@ -40,7 +40,6 @@ async function main() {
   }
 
   const db = createPrismaClient();
-  await applySqlitePragmas(db);
 
   const competitionSlug = args.find((a) => a.startsWith("--competition="))?.split("=")[1];
 

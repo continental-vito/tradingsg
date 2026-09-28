@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { env } from "@/lib/env";
-import { applySqlitePragmas, createPrismaClient } from "@/server/prisma";
+import { createPrismaClient } from "@/server/prisma";
 import { findJob } from "@/server/jobs/registry";
 
 /**
@@ -34,7 +34,6 @@ export async function POST(request: Request, context: { params: Promise<{ job: s
   // module registry to reuse, and it must be disconnected before returning.
   const db = createPrismaClient();
   try {
-    await applySqlitePragmas(db);
     const outcomes = await job.run(db, { triggeredBy: "HTTP" });
     const failed = outcomes.filter((o) => o.status === "FAILED");
 

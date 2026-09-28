@@ -29,10 +29,8 @@
   },
   "dependencies": {
     "@node-rs/argon2": "2.2.0",
-    "@prisma/adapter-better-sqlite3": "^7.10.0",
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "7.10.0",
-    "better-sqlite3": "^13.0.3",
     "next": "16.3.4",
     "node-cron": "4.6.0",
     "nodemailer": "10.0.0",
@@ -54,6 +52,7 @@
     "@types/react-dom": "19.2.7",
     "eslint": "9.39.5",
     "eslint-config-next": "16.3.4",
+    "pglite-prisma-adapter": "^0.7.2",
     "prettier": "3.9.6",
     "prisma": "7.10.0",
     "tailwindcss": "4.3.3",

@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "worker": "tsx src/server/jobs/worker.ts",
     "job": "tsx src/server/jobs/cli.ts",

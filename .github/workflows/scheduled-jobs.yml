@@ -1,18 +1,22 @@
 # Drives the scheduled jobs by HTTP, as an alternative to Vercel Cron.
 #
-# Why this exists: Vercel's Hobby plan allows two cron jobs, triggered about
-# once a day. vercel.json declares seven, four of which need to run far more
-# often than that — prices every 15 minutes during market hours, scheduled
-# reports every ten. On Hobby those schedules are not honoured, and the jobs
-# quietly do not run. Actions minutes are free on a public repository, and the
-# cron endpoints already authenticate with a bearer token, so this costs
-# nothing and works on any plan.
+# Why this exists: Vercel's Hobby plan allows two cron jobs at daily
+# granularity, and REFUSES THE DEPLOYMENT if vercel.json asks for more —
+#
+#   Error: Hobby accounts are limited to daily cron jobs. This cron expression
+#   (*/15 8-22 * * 1-5) would run more than once per day.
+#
+# This app has nine jobs, three of them sub-daily. So vercel.json declares no
+# crons at all and this drives them instead: Actions minutes are free on a
+# public repository, the cron endpoints already authenticate with a bearer
+# token, and it works on any plan.
 #
 # Requires two repository secrets (Settings → Secrets and variables → Actions):
 #   APP_URL      https://your-deployment.vercel.app   (no trailing slash)
 #   CRON_SECRET  the same value set in the Vercel project
 #
-# If you are on Vercel Pro, delete this file and let vercel.json do the work.
+# On Vercel Pro you could move these back into vercel.json, but there is little
+# reason to: this already works, and build/check-schedule.py tests it.
 name: Scheduled jobs
 
 on:
@@ -48,6 +52,8 @@ jobs:
   run:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Work out which jobs are due
         id: due
         env:
@@ -57,47 +63,10 @@ jobs:
             echo "jobs=${MANUAL}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-
-          # UTC, which is what the runner gives us. The application itself
-          # resolves the competition's own timezone; these windows only need to
-          # be generous enough not to miss it.
-          hour=$(date -u +%-H)
-          minute=$(date -u +%-M)
-          dow=$(date -u +%u)   # 1 = Monday
-
-          jobs=""
-          # Market hours, weekdays: quotes and due report sends.
-          if [ "$dow" -le 5 ] && [ "$hour" -ge 7 ] && [ "$hour" -le 21 ]; then
-            jobs="refresh-prices"
-          fi
-          jobs="${jobs} send-scheduled-reports"
-
-          # Official closes, then the valuations and leaderboard that read them.
-          if [ "$dow" -le 5 ] && [ "$hour" -eq 21 ] && [ "$minute" -lt 15 ]; then
-            jobs="${jobs} close-prices"
-          fi
-          if [ "$hour" -eq 22 ] && [ "$minute" -lt 15 ]; then
-            jobs="${jobs} snapshot-valuations"
-          fi
-          if [ "$hour" -eq 22 ] && [ "$minute" -ge 15 ] && [ "$minute" -lt 30 ]; then
-            jobs="${jobs} snapshot-leaderboard"
-          fi
-          # The day's CSV backup, after the valuations it records.
-          if [ "$hour" -eq 22 ] && [ "$minute" -ge 45 ]; then
-            jobs="${jobs} export-backup"
-          fi
-          # Monday morning, after Sunday night's leaderboard snapshot exists.
-          if [ "$dow" -eq 1 ] && [ "$hour" -eq 5 ] && [ "$minute" -lt 15 ]; then
-            jobs="${jobs} build-weekly-report"
-          fi
-          if [ "$minute" -lt 15 ]; then
-            jobs="${jobs} run-notifications"
-          fi
-          # Expired sessions, tokens and old job history.
-          if [ "$hour" -eq 2 ] && [ "$minute" -ge 30 ] && [ "$minute" -lt 45 ]; then
-            jobs="${jobs} housekeeping"
-          fi
-
+          # The logic lives in build/due-jobs.sh so it can be tested —
+          # build/check-schedule.py sweeps every quarter-hour of a week and
+          # fails if any registered job is never due.
+          jobs=$(bash build/due-jobs.sh "$(date -u +%H)" "$(date -u +%M)" "$(date -u +%u)" | tr '\n' ' ')
           echo "jobs=${jobs}" >> "$GITHUB_OUTPUT"
 
       - name: Call each due job

@@ -42,3 +42,5 @@ next-env.d.ts
 
 # Local PostgreSQL data, written by `make dev-db`.
 .pgdata/
+.vercel
+.env*

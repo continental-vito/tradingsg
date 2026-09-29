@@ -79,6 +79,16 @@ jobs:
             echo "::error::APP_URL and CRON_SECRET must both be set as repository secrets."
             exit 1
           fi
+
+          # Normalised the same way src/lib/env.ts normalises APP_URL. A
+          # trailing slash gives `…app//api/cron/<job>`, which Next answers
+          # with a 308 to the single-slash form — so the job never ran and the
+          # error blamed CRON_SECRET.
+          APP_URL="$(printf '%s' "${APP_URL}" | tr -d '[:space:]' | sed -E 's#/+$##')"
+          case "${APP_URL}" in
+            http://*|https://*) ;;
+            *) APP_URL="https://${APP_URL}" ;;
+          esac
           if [ -z "${JOBS}" ]; then
             echo "Nothing due this tick."
             exit 0
@@ -90,14 +100,20 @@ jobs:
             # The body is printed whatever the status: a job that half-ran says
             # so in its response, and swallowing that is how a silent failure
             # survives for a week.
-            code=$(curl -sS -o /tmp/out.txt -w '%{http_code}' -X POST \
+            # --location so a 308 is followed; curl preserves POST across 307
+            # and 308, unlike 301/302 where it would silently become a GET.
+            code=$(curl -sS --location --max-time 300 -o /tmp/out.txt -w '%{http_code}' -X POST \
               -H "Authorization: Bearer ${CRON_SECRET}" \
               "${APP_URL}/api/cron/${job}")
             cat /tmp/out.txt; echo
             if [ "${code}" != "200" ]; then
-              # 404 is what the route returns for a bad or missing secret, so it
-              # is the likeliest cause of a sudden across-the-board failure.
-              echo "::error::${job} returned ${code} (404 usually means CRON_SECRET does not match)"
+              case "${code}" in
+                404) hint="the route 404s when CRON_SECRET is unset in Vercel or does not match this one";;
+                3*)  hint="still redirecting after --location; check APP_URL points at the production domain";;
+                5*)  hint="the job itself threw — the response body above is from the app";;
+                *)   hint="unexpected";;
+              esac
+              echo "::error::${job} returned ${code} — ${hint}"
               failed=1
             fi
           done

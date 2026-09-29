@@ -19,10 +19,30 @@ concurrency:
 jobs:
   ci:
     runs-on: ubuntu-latest
+
+    # A real PostgreSQL, because that is what this project runs on everywhere.
+    # The test suite does not need it — each suite gets its own in-process
+    # PGlite — but `prisma migrate deploy` and the seed check do, and those are
+    # precisely the two steps that prove a deployment will work.
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tradingsg
+        ports:
+          - 5432:5432
+        # Without a health check the first step races the container's startup
+        # and fails with a connection error that looks like a code problem.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     env:
-      # A throwaway file database. The suite creates and drops its own, but
-      # prisma generate and next build both need the variable to be set at all.
-      DATABASE_URL: "file:./ci.db"
+      DATABASE_URL: "postgres://postgres:postgres@localhost:5432/tradingsg"
       CI: "true"
     steps:
       - uses: actions/checkout@v4

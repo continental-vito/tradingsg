@@ -17,11 +17,45 @@ import { z } from "zod";
 export const EMAIL_PROVIDERS = ["console", "smtp", "resend"] as const;
 export const MARKET_DATA_PROVIDERS = ["mock", "yahoo", "finnhub"] as const;
 
+/**
+ * Completes a bare hostname to https:// and drops trailing slashes.
+ * Exported so it can be tested directly — see env.test.ts for the inputs that
+ * broke a production build.
+ */
+export function normalizeAppUrl(value: string): string {
+  const trimmed = value.trim().replace(/\/+$/, "");
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   DATABASE_URL: z.string().min(1),
 
-  APP_URL: z.string().url().default("http://localhost:3000"),
+  /**
+   * The deployed origin, used to build links in email.
+   *
+   * Normalised rather than merely validated, because the two ways of getting
+   * it wrong are both things a careful person does:
+   *
+   * - Vercel's dashboard shows the domain WITHOUT a scheme, so pasting what you
+   *   see gives `tradingsg.vercel.app`, which is not a URL. That failed the
+   *   whole production build with `APP_URL: Invalid URL` and no hint as to
+   *   which of the many possible URLs it meant.
+   * - A trailing slash makes every link `…app//reset-password/<token>`, which
+   *   works but looks broken in somebody's inbox.
+   *
+   * A bare hostname is unambiguous, so it is completed to https:// rather than
+   * rejected. Anything still unparseable fails with a message naming the fix.
+   */
+  APP_URL: z
+    .string()
+    .default("http://localhost:3000")
+    .transform(normalizeAppUrl)
+    .refine((value) => URL.parse(value) !== null, {
+      message:
+        "must be the deployed origin, e.g. https://your-app.vercel.app — a bare " +
+        "hostname is fine, a path or a space is not",
+    }),
   COMPANY_NAME: z.string().default("Acme Corp"),
 
   MARKET_DATA_PROVIDER: z.enum(MARKET_DATA_PROVIDERS).default("mock"),

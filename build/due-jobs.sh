@@ -12,7 +12,7 @@
 # no error, just a leaderboard that stops updating.
 #
 # Why not Vercel Cron: the Hobby plan allows two cron jobs at daily granularity.
-# This app has nine, three of them sub-daily, so `vercel.json` declaring them
+# This app has eight, two of them sub-daily, so `vercel.json` declaring them
 # fails the deployment outright. See docs/deployment.md.
 set -euo pipefail
 
@@ -33,9 +33,6 @@ due=()
 if [[ ${dow} -le 5 && ${hour} -ge 7 && ${hour} -le 21 ]]; then
     due+=("refresh-prices")
 fi
-
-# Reports that are due to go out. Cheap when there are none.
-due+=("send-scheduled-reports")
 
 # The official close, then the valuations and leaderboard that read it.
 if [[ ${dow} -le 5 && ${hour} -eq 21 && ${minute} -lt 15 ]]; then
@@ -67,4 +64,9 @@ if [[ ${hour} -eq 2 && ${minute} -ge 30 && ${minute} -lt 45 ]]; then
     due+=("housekeeping")
 fi
 
-printf '%s\n' "${due[@]}"
+# Some ticks now have nothing due (the report sender used to run on every one).
+# Guarded because bash 3.2, the macOS default, treats an empty array as unbound
+# under `set -u` — the script died instead of printing nothing.
+if [[ ${#due[@]} -gt 0 ]]; then
+    printf '%s\n' "${due[@]}"
+fi

@@ -1,4 +1,4 @@
-import { AppNav } from "@/components/app-nav";
+import { ADMIN_LINKS, AppNav } from "@/components/app-nav";
 import { requireUser } from "@/server/auth/guard";
 
 /**
@@ -11,14 +11,17 @@ export default async function ParticipantLayout({ children }: { children: React.
     <div className="flex min-h-dvh flex-col">
       <AppNav
         user={user}
-        links={[
-          { href: "/dashboard", label: "Dashboard" },
-          { href: "/portfolio", label: "Portfolio" },
-          { href: "/leaderboard", label: "Leaderboard" },
-          { href: "/competition", label: "Competition" },
-          { href: "/rules", label: "Rules" },
-          ...(user.role === "ADMIN" ? [{ href: "/admin", label: "Admin" }] : []),
-        ]}
+        links={
+          user.role === "ADMIN"
+            ? ADMIN_LINKS
+            : [
+                { href: "/dashboard", label: "Dashboard" },
+                { href: "/portfolio", label: "Portfolio" },
+                { href: "/leaderboard", label: "Leaderboard" },
+                { href: "/competition", label: "Competition" },
+                { href: "/rules", label: "Rules" },
+              ]
+        }
       />
       <main className="mx-auto w-full max-w-7xl flex-1 px-5 py-8">{children}</main>
     </div>

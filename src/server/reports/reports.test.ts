@@ -5,7 +5,6 @@ import { commitRebalance } from "@/server/portfolio/commit";
 import { snapshotLeaderboard } from "@/server/jobs/leaderboard";
 import { snapshotValuations } from "@/server/jobs/valuations";
 import { buildWeeklyReport, ReportError } from "./generate";
-import { sendWeeklyReport } from "./send";
 
 let db: PrismaClient;
 let cleanup: () => Promise<void>;
@@ -109,42 +108,12 @@ describe("buildWeeklyReport", () => {
   });
 });
 
-describe("sendWeeklyReport", () => {
-  it("sends once per recipient and cannot double-send on a re-run", async () => {
-    const report = await db.weeklyReport.findFirstOrThrow({ orderBy: { createdAt: "desc" } });
-
-    const first = await sendWeeklyReport(db, report.id);
-    expect(first.sent).toBe(2);
-    expect(first.failed).toBe(0);
-
-    // The unique dedupeKey is what makes this safe even if sendStatus were
-    // left inconsistent by a crash mid-run.
-    const second = await sendWeeklyReport(db, report.id);
-    expect(second.attempted).toBe(0);
-    expect(second.sent).toBe(0);
-
-    expect(await db.emailLog.count({ where: { reportId: report.id, isTest: false } })).toBe(2);
-    const after = await db.weeklyReport.findUniqueOrThrow({ where: { id: report.id } });
-    expect(after.status).toBe("SENT");
-    expect(after.sentCount).toBe(2);
-  });
-
-  it("writes an EmailLog row for every attempt, before the send", async () => {
-    const logs = await db.emailLog.findMany({ where: { isTest: false } });
-    expect(logs.length).toBeGreaterThan(0);
-    for (const log of logs) {
-      expect(log.status).toBe("SENT");
-      expect(log.bodyHash).toMatch(/^[0-9a-f]{64}$/);
-      // The hash recorded at send must match the one frozen at build — a
-      // mismatch would mean the stored email changed between the two.
-      const entry = await db.weeklyReportEntry.findFirstOrThrow({
-        where: { reportId: log.reportId ?? "", participantId: log.participantId ?? "" },
-      });
-      expect(log.bodyHash).toBe(entry.contentHash);
-    }
-  });
-
+describe("rebuilding a report emailed before PDF-only", () => {
   it("refuses to rebuild a report that has already been sent", async () => {
+    // Nothing sends any more, but weeks emailed before the switch still carry
+    // SENT. Silently replacing one would erase what people received.
+    const report = await db.weeklyReport.findFirstOrThrow({ orderBy: { createdAt: "desc" } });
+    await db.weeklyReport.update({ where: { id: report.id }, data: { status: "SENT" } });
     await expect(buildWeeklyReport(db, { competitionId, asOfDate: DAY_TWO })).rejects.toThrow(
       /already been sent/,
     );
@@ -165,7 +134,7 @@ describe("sendWeeklyReport", () => {
 describe("weekly email opt-out", () => {
   // Runs last on purpose: it forces a rebuild, and the tests above assert
   // absolute revision numbers.
-  it("skips someone who has turned the weekly email off", async () => {
+  it("keeps someone who turned the weekly email off in the report", async () => {
     // The notifications page offers this choice. Until the report honoured it,
     // opting out silenced the in-app item and the email arrived anyway — which
     // makes a preference a lie rather than a setting.
@@ -184,17 +153,8 @@ describe("weekly email opt-out", () => {
     });
     expect(entry.sendStatus).toBe("SKIPPED");
     expect(entry.skipReason).toBe("OPTED_OUT");
-    // ...but the report is still BUILT for them, so their figures exist on the
-    // site even though no email goes out.
-    expect(entry.renderedHtml.length).toBeGreaterThan(500);
-
-    // Sending now reaches everyone except them.
-    const outcome = await sendWeeklyReport(db, report.id);
-    expect(outcome.sent).toBe(report.recipientCount);
-    expect(
-      await db.emailLog.count({
-        where: { reportId: report.id, participantId: alice.participant.id, isTest: false },
-      }),
-    ).toBe(0);
+    // ...but they are still IN the report: turning off an email must never
+    // drop someone from the standings the PDF prints.
+    expect(entry.totalValueCents).toBeGreaterThan(0n);
   });
 });

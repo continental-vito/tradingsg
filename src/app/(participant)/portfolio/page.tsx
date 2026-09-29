@@ -7,14 +7,14 @@ import { AllocationDonut } from "@/components/charts/allocation-donut";
 import { CASH_COLOR, topNWithOther } from "@/components/charts/palette";
 import { Alert, Card, EmptyState } from "@/components/ui";
 import { toneClass } from "@/components/stat";
-import { requireUser } from "@/server/auth/guard";
+import { requirePlayer } from "@/server/auth/guard";
 import { loadDashboard } from "@/server/dto/portfolio.dto";
 
 export const metadata: Metadata = { title: "Portfolio" };
 export const dynamic = "force-dynamic";
 
 export default async function PortfolioPage() {
-  const user = await requireUser();
+  const user = await requirePlayer();
   const data = await loadDashboard(user.id);
   if (!data) {
     const joinable = await loadJoinable();

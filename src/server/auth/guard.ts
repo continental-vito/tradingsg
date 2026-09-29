@@ -16,6 +16,18 @@ export async function requireUser(): Promise<SessionUser> {
   return user;
 }
 
+/**
+ * For the pages about playing — dashboard, portfolio, leaderboard, rules.
+ * Administrators run the competition rather than take part, so they are sent
+ * to the admin area instead of being shown an empty "join" prompt they could
+ * never complete.
+ */
+export async function requirePlayer(): Promise<SessionUser> {
+  const user = await requireUser();
+  if (user.role === "ADMIN") redirect("/admin");
+  return user;
+}
+
 export async function requireAdmin(): Promise<SessionUser> {
   const user = await requireUser();
   if (user.role !== "ADMIN") {

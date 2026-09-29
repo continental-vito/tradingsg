@@ -91,6 +91,16 @@ describe("enrolInCompetition", () => {
     });
   });
 
+  it("refuses an administrator, so no admin portfolio reaches the leaderboard", async () => {
+    const user = await makeUser("admin-joiner@example.com");
+    await db.user.update({ where: { id: user.id }, data: { role: "ADMIN" } });
+    const result = await enrolInCompetition(db, { userId: user.id });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("ADMIN");
+    expect(await db.participant.count({ where: { userId: user.id } })).toBe(0);
+  });
+
   it("refuses a disabled account", async () => {
     const user = await makeUser("disabled@example.com");
     await db.user.update({ where: { id: user.id }, data: { isDisabled: true } });

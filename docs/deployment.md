@@ -196,8 +196,8 @@ Error: Hobby accounts are limited to daily cron jobs. This cron expression
 ```
 
 That is not a degraded schedule — it stops the site shipping at all. This app
-has nine jobs and three are sub-daily (`refresh-prices` every 15 minutes during
-market hours, `send-scheduled-reports` every 10, `run-notifications` hourly).
+has eight jobs and two are sub-daily (`refresh-prices` every 15 minutes during
+market hours, `run-notifications` hourly).
 
 So **`vercel.json` declares no crons**, and
 `.github/workflows/scheduled-jobs.yml` drives them over HTTP instead. Actions

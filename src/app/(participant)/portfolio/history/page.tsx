@@ -5,7 +5,7 @@ import { JoinPrompt } from "@/components/join-prompt";
 import { loadJoinable } from "@/server/dto/participation";
 import { Card, EmptyState } from "@/components/ui";
 import { toneClass } from "@/components/stat";
-import { requireUser } from "@/server/auth/guard";
+import { requirePlayer } from "@/server/auth/guard";
 import { db } from "@/server/db";
 import { formatCents, formatShares, formatPpm } from "@/server/money";
 
@@ -23,7 +23,7 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 export default async function HistoryPage() {
-  const user = await requireUser();
+  const user = await requirePlayer();
 
   const participant = await db.participant.findFirst({
     where: { userId: user.id, deletedAt: null },

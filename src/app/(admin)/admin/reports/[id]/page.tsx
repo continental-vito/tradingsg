@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { scheduleReportAction, sendReportAction, testSendAction } from "@/app/actions/reports";
-import { SendControls } from "@/components/report-controls";
 import { Card } from "@/components/ui";
 import { toneClass } from "@/components/stat";
 import { requireAdmin } from "@/server/auth/guard";
@@ -26,7 +24,6 @@ export default async function AdminReportPage({ params }: { params: Promise<{ id
           participant: { select: { displayName: true, user: { select: { email: true } } } },
         },
       },
-      emailLogs: { orderBy: { queuedAt: "desc" }, take: 40 },
     },
   });
   if (!report) notFound();
@@ -44,8 +41,8 @@ export default async function AdminReportPage({ params }: { params: Promise<{ id
         </Link>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">{report.isoWeek}</h1>
         <p className="mt-1 text-sm text-[var(--text-muted)]">
-          {report.periodStartDate} to {report.periodEndDate} · {report.recipientCount} recipients ·
-          status {report.status.toLowerCase().replace("_", " ")}
+          {report.periodStartDate} to {report.periodEndDate} · {report.entries.length} participants
+          {report.revision > 1 ? ` · revision ${report.revision}` : ""}
         </p>
       </div>
 
@@ -54,7 +51,7 @@ export default async function AdminReportPage({ params }: { params: Promise<{ id
           <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-3">
             <h2 className="text-sm font-medium text-[var(--text-muted)]">Preview</h2>
             <a
-              href={`/api/admin/reports/${report.id}/preview`}
+              href={`/api/admin/reports/${report.id}/pdf?inline=1`}
               target="_blank"
               rel="noreferrer"
               className="text-sm font-medium text-accent-600 hover:text-accent-700"
@@ -62,41 +59,40 @@ export default async function AdminReportPage({ params }: { params: Promise<{ id
               Open in a new tab
             </a>
           </div>
-          {/* The iframe shows the stored bytes, not a re-render of them — the
-              same column the send path reads. */}
+          {/* Not sandboxed: a sandboxed iframe blocks the browser's built-in PDF
+              viewer, and this only ever shows a PDF this app generated. */}
           <iframe
             title="Report preview"
-            src={`/api/admin/reports/${report.id}/preview`}
-            sandbox=""
+            src={`/api/admin/reports/${report.id}/pdf?inline=1`}
             className="h-[820px] w-full border-0 bg-white"
           />
         </Card>
 
         <div className="space-y-4">
           <Card>
-            <h2 className="mb-4 text-sm font-medium">Send</h2>
-            <SendControls
-              reportId={report.id}
-              status={report.status}
-              recipientCount={report.recipientCount}
-              testSend={testSendAction}
-              send={sendReportAction}
-              schedule={scheduleReportAction}
-            />
+            <h2 className="text-sm font-medium">Download</h2>
+            <p className="mt-1 mb-4 text-sm text-[var(--text-muted)]">
+              The figures are frozen from the week&rsquo;s leaderboard, so the PDF reads the same
+              whenever it is downloaded.
+            </p>
+            <a
+              href={`/api/admin/reports/${report.id}/pdf`}
+              className="inline-flex rounded-lg bg-accent-600 px-4 py-2 text-sm font-medium text-white hover:bg-accent-700"
+            >
+              Download PDF
+            </a>
           </Card>
 
           <Card>
-            <h2 className="text-sm font-medium">Subject</h2>
-            <p className="mt-1 text-sm text-[var(--text-muted)]">{report.subject}</p>
             {report.introMessage ? (
               <>
-                <h3 className="mt-3 text-sm font-medium">Introduction</h3>
-                <p className="mt-1 text-sm text-[var(--text-muted)]">{report.introMessage}</p>
+                <h2 className="text-sm font-medium">Introduction</h2>
+                <p className="mt-1 mb-3 text-sm text-[var(--text-muted)]">{report.introMessage}</p>
               </>
             ) : null}
-            <p className="mt-3 text-xs text-[var(--text-muted)]">
-              Leaderboard {report.showLeaderboard ? "included" : "hidden"} · personal section{" "}
-              {report.showIndividual ? "included" : "hidden"} · top {report.leaderboardSize}
+            <p className="text-xs text-[var(--text-muted)]">
+              Top {report.leaderboardSize} {report.showLeaderboard ? "included" : "hidden"} · all
+              participants {report.showIndividual ? "included" : "hidden"}
             </p>
           </Card>
         </div>
@@ -104,10 +100,10 @@ export default async function AdminReportPage({ params }: { params: Promise<{ id
 
       <Card className="overflow-hidden p-0">
         <h2 className="px-5 py-4 text-sm font-medium text-[var(--text-muted)]">
-          Recipients ({report.entries.length})
+          Participants ({report.entries.length})
         </h2>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[820px] text-sm">
+          <table className="w-full min-w-[640px] text-sm">
             <thead>
               <tr className="border-y border-[var(--border)] text-left text-xs text-[var(--text-muted)]">
                 <th className="px-5 py-2.5 font-medium">Rank</th>
@@ -115,8 +111,6 @@ export default async function AdminReportPage({ params }: { params: Promise<{ id
                 <th className="px-3 py-2.5 text-right font-medium">This week</th>
                 <th className="px-3 py-2.5 text-right font-medium">Total</th>
                 <th className="px-3 py-2.5 text-right font-medium">Value</th>
-                <th className="px-3 py-2.5 font-medium">Delivery</th>
-                <th className="px-5 py-2.5 text-right font-medium" />
               </tr>
             </thead>
             <tbody>
@@ -148,85 +142,12 @@ export default async function AdminReportPage({ params }: { params: Promise<{ id
                   <td className="tnum px-3 py-2.5 text-right">
                     {formatCents(e.totalValueCents, currency)}
                   </td>
-                  <td className="px-3 py-2.5 text-xs">
-                    {e.sendStatus.toLowerCase()}
-                    {e.skipReason ? (
-                      <span className="text-[var(--text-muted)]">
-                        {" "}
-                        · {e.skipReason.toLowerCase()}
-                      </span>
-                    ) : null}
-                  </td>
-                  <td className="px-5 py-2.5 text-right">
-                    <a
-                      href={`/api/admin/reports/${report.id}/preview?participantId=${e.participantId}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs font-medium text-accent-600"
-                    >
-                      Preview
-                    </a>
-                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </Card>
-
-      {report.emailLogs.length > 0 ? (
-        <Card className="overflow-hidden p-0">
-          <h2 className="px-5 py-4 text-sm font-medium text-[var(--text-muted)]">
-            Sending history
-          </h2>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm">
-              <thead>
-                <tr className="border-y border-[var(--border)] text-left text-xs text-[var(--text-muted)]">
-                  <th className="px-5 py-2.5 font-medium">Queued</th>
-                  <th className="px-3 py-2.5 font-medium">To</th>
-                  <th className="px-3 py-2.5 font-medium">Provider</th>
-                  <th className="px-3 py-2.5 font-medium">Status</th>
-                  <th className="px-5 py-2.5 font-medium">Detail</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.emailLogs.map((log) => (
-                  <tr key={log.id} className="border-b border-[var(--border)] last:border-0">
-                    <td className="tnum px-5 py-2.5 text-xs">
-                      {log.queuedAt.toISOString().slice(0, 19).replace("T", " ")}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      {log.toEmail}
-                      {log.isTest ? (
-                        <span className="ml-1.5 rounded bg-[var(--surface-sunken)] px-1 py-0.5 text-[10px] text-[var(--text-muted)]">
-                          test
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="px-3 py-2.5 text-[var(--text-muted)]">{log.provider}</td>
-                    <td
-                      className={
-                        "px-3 py-2.5 " +
-                        (log.status === "SENT"
-                          ? "text-up-600"
-                          : log.status === "FAILED"
-                            ? "text-down-600"
-                            : "")
-                      }
-                    >
-                      {log.status.toLowerCase()}
-                    </td>
-                    <td className="px-5 py-2.5 text-xs text-[var(--text-muted)]">
-                      {log.error ?? log.htmlPath ?? log.providerMessageId ?? "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      ) : null}
     </div>
   );
 }

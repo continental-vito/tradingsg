@@ -6,7 +6,7 @@
 #   Error: Hobby accounts are limited to daily cron jobs. This cron expression
 #   (*/15 8-22 * * 1-5) would run more than once per day.
 #
-# This app has nine jobs, three of them sub-daily. So vercel.json declares no
+# This app has eight jobs, two of them sub-daily. So vercel.json declares no
 # crons at all and this drives them instead: Actions minutes are free on a
 # public repository, the cron endpoints already authenticate with a bearer
 # token, and it works on any plan.
@@ -36,7 +36,6 @@ on:
           - snapshot-valuations
           - snapshot-leaderboard
           - build-weekly-report
-          - send-scheduled-reports
           - run-notifications
           - export-backup
           - housekeeping

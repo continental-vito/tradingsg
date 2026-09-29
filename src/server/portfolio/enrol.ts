@@ -66,10 +66,21 @@ export async function enrolInCompetition(
 
   const user = await db.user.findUnique({
     where: { id: args.userId },
-    select: { firstName: true, lastName: true, deletedAt: true, isDisabled: true },
+    select: { firstName: true, lastName: true, deletedAt: true, isDisabled: true, role: true },
   });
   if (!user || user.deletedAt !== null || user.isDisabled) {
     return { ok: false, code: "NO_USER", error: "That account cannot join a competition." };
+  }
+  // Administrators run the competition and do not play in it: an admin can see
+  // every portfolio and set the rules, so ranking one would not be a fair
+  // entry, and an unfunded admin row would sit on the leaderboard as noise.
+  if (user.role === "ADMIN") {
+    return {
+      ok: false,
+      code: "ADMIN",
+      error:
+        "Administrators run the competition and cannot take part in it. Use a separate participant account to play.",
+    };
   }
 
   const capital = competition.startingCapitalCents;

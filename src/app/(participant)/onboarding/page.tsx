@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Card } from "@/components/ui";
-import { requireUser } from "@/server/auth/guard";
+import { requirePlayer } from "@/server/auth/guard";
 import { db } from "@/server/db";
 import { formatCents } from "@/server/money";
 
@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "How this works" };
 export const dynamic = "force-dynamic";
 
 export default async function OnboardingPage() {
-  await requireUser();
+  await requirePlayer();
 
   const competition = await db.competition.findFirst({
     where: { deletedAt: null, status: { in: ["REGISTRATION", "RUNNING"] } },

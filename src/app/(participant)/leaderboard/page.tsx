@@ -3,7 +3,7 @@ import Link from "next/link";
 import { Avatar } from "@/components/avatar";
 import { Card, EmptyState } from "@/components/ui";
 import { toneClass } from "@/components/stat";
-import { requireUser } from "@/server/auth/guard";
+import { requirePlayer } from "@/server/auth/guard";
 import {
   loadLeaderboard,
   type LeaderboardRow,
@@ -37,7 +37,7 @@ export default async function LeaderboardPage({
 }: {
   searchParams: Promise<{ scope?: string }>;
 }) {
-  const user = await requireUser();
+  const user = await requirePlayer();
   const { scope: rawScope } = await searchParams;
   const scope: LeaderboardScope =
     rawScope === "week" || rawScope === "month" ? rawScope : "overall";

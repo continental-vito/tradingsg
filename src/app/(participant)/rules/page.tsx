@@ -3,7 +3,7 @@ import { joinCompetitionAction } from "@/app/actions/join";
 import { JoinPrompt } from "@/components/join-prompt";
 import { loadJoinable } from "@/server/dto/participation";
 import { Card } from "@/components/ui";
-import { requireUser } from "@/server/auth/guard";
+import { requirePlayer } from "@/server/auth/guard";
 import { db } from "@/server/db";
 import { formatCents } from "@/server/money";
 
@@ -30,7 +30,7 @@ const PRICE_MODE: Record<string, string> = {
  * worse than none.
  */
 export default async function RulesPage() {
-  const user = await requireUser();
+  const user = await requirePlayer();
 
   const participant = await db.participant.findFirst({
     where: { userId: user.id, deletedAt: null },

@@ -6,7 +6,7 @@ import { previewRebalanceAction, submitRebalanceAction } from "@/app/actions/por
 import { AllocationEditor, type AllocatableStock } from "@/components/allocation-editor";
 import { Alert } from "@/components/ui";
 import { dateKeyOf } from "@/lib/dates";
-import { requireUser } from "@/server/auth/guard";
+import { requirePlayer } from "@/server/auth/guard";
 import { db } from "@/server/db";
 import { formatCents, toPpm } from "@/server/money";
 import { buildPriceBook } from "@/server/portfolio/prices";
@@ -16,7 +16,7 @@ export const metadata: Metadata = { title: "Build your portfolio" };
 export const dynamic = "force-dynamic";
 
 export default async function AllocatePage() {
-  const user = await requireUser();
+  const user = await requirePlayer();
 
   const participant = await db.participant.findFirst({
     where: { userId: user.id, deletedAt: null },

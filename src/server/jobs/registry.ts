@@ -7,7 +7,6 @@ import { runNotifications } from "./notifications";
 import { runHousekeeping } from "./housekeeping";
 import { pruneExports, storeExports } from "@/server/backup/export";
 import { buildWeeklyReport } from "@/server/reports/generate";
-import { sendWeeklyReport } from "@/server/reports/send";
 import { runJob, type JobOutcome } from "./run";
 
 /**
@@ -257,58 +256,6 @@ export const JOBS: JobDefinition[] = [
               });
               ctx.log(`${report.isoWeek} built for ${report.recipientCount} recipients`);
               return { itemsProcessed: report.recipientCount, detail: { reportId: report.id } };
-            },
-          ),
-        );
-      }
-      return outcomes;
-    },
-  },
-
-  {
-    name: "send-scheduled-reports",
-    description: "Send any report whose scheduled time has passed.",
-    cron: "*/10 * * * *",
-    runKeyFor: (now) => `tick:${Math.floor(now.getTime() / 600_000)}`,
-    run: async (db, args) => {
-      const now = args.now ?? new Date();
-      const due = await db.weeklyReport.findMany({
-        where: {
-          status: "SCHEDULED",
-          scheduledFor: { lte: now },
-        },
-        select: { id: true, isoWeek: true, periodEndDate: true },
-      });
-      if (due.length === 0) return [];
-
-      const outcomes: JobOutcome[] = [];
-      for (const report of due) {
-        outcomes.push(
-          await runJob(
-            db,
-            {
-              jobName: "send-scheduled-reports",
-              runKey: report.id,
-              triggeredBy: args.triggeredBy,
-              force: args.force,
-            },
-            async (ctx) => {
-              // A report about a period long past should not go out because a
-              // laptop came back online — the catch-up would blast four weeks
-              // of email at everyone at once.
-              const age = Math.abs(
-                (now.getTime() - new Date(`${report.periodEndDate}T00:00:00Z`).getTime()) /
-                  86_400_000,
-              );
-              if (age > 10 && !args.force) {
-                ctx.log(`skipped ${report.isoWeek}: ${Math.round(age)} days stale`);
-                return { itemsProcessed: 0 };
-              }
-              const outcome = await sendWeeklyReport(ctx.db, report.id);
-              ctx.log(
-                `${report.isoWeek}: ${outcome.sent} sent, ${outcome.failed} failed, ${outcome.skipped} skipped`,
-              );
-              return { itemsProcessed: outcome.sent, itemsFailed: outcome.failed };
             },
           ),
         );

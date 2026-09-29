@@ -6,14 +6,14 @@ import { CASH_COLOR, topNWithOther } from "@/components/charts/palette";
 import { Alert, Card, EmptyState } from "@/components/ui";
 import { Stat, toneClass } from "@/components/stat";
 import { formatRemaining } from "@/lib/dates";
-import { requireUser } from "@/server/auth/guard";
+import { requirePlayer } from "@/server/auth/guard";
 import { loadDashboard } from "@/server/dto/portfolio.dto";
 
 export const metadata: Metadata = { title: "Dashboard" };
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const user = await requireUser();
+  const user = await requirePlayer();
   const data = await loadDashboard(user.id);
 
   if (!data) {

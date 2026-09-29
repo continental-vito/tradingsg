@@ -26,28 +26,22 @@ function Feedback({ result }: { result: ReportActionResult | null }) {
 
 export function BuildReportForm({
   competitionId,
-  defaultSubject,
   build,
 }: {
   competitionId: string;
-  defaultSubject: string;
   build: (input: {
     competitionId: string;
-    subject?: string;
     introMessage?: string;
     showLeaderboard: boolean;
     showIndividual: boolean;
     leaderboardSize: number;
-    force: boolean;
   }) => Promise<ReportActionResult>;
 }) {
   const { pending, result, run } = useReportAction();
-  const [subject, setSubject] = useState(defaultSubject);
   const [intro, setIntro] = useState("");
   const [showLeaderboard, setShowLeaderboard] = useState(true);
   const [showIndividual, setShowIndividual] = useState(true);
   const [size, setSize] = useState(10);
-  const [force, setForce] = useState(false);
 
   return (
     <div className="space-y-3">
@@ -58,24 +52,15 @@ export function BuildReportForm({
           run(() =>
             build({
               competitionId,
-              subject: subject || undefined,
               introMessage: intro || undefined,
               showLeaderboard,
               showIndividual,
               leaderboardSize: size,
-              force,
             }),
           );
         }}
       >
-        <Field label="Subject line">
-          <Input value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={200} />
-        </Field>
-
-        <Field
-          label="Introductory message"
-          hint="Optional. Appears above everyone's personal section."
-        >
+        <Field label="Introductory message" hint="Optional. Printed at the top of the PDF.">
           <textarea
             value={intro}
             onChange={(e) => setIntro(e.target.value)}
@@ -105,7 +90,7 @@ export function BuildReportForm({
               onChange={(e) => setShowLeaderboard(e.target.checked)}
               className="size-4 accent-accent-600"
             />
-            Include the leaderboard
+            Include the top of the leaderboard
           </label>
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -114,16 +99,7 @@ export function BuildReportForm({
               onChange={(e) => setShowIndividual(e.target.checked)}
               className="size-4 accent-accent-600"
             />
-            Include each person&rsquo;s own performance
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={force}
-              onChange={(e) => setForce(e.target.checked)}
-              className="size-4 accent-accent-600"
-            />
-            Rebuild even if already sent
+            Include every participant&rsquo;s results
           </label>
         </div>
 
@@ -131,91 +107,6 @@ export function BuildReportForm({
           {pending ? "Building…" : "Build this week's report"}
         </Button>
       </form>
-      <Feedback result={result} />
-    </div>
-  );
-}
-
-export function SendControls({
-  reportId,
-  status,
-  recipientCount,
-  testSend,
-  send,
-  schedule,
-}: {
-  reportId: string;
-  status: string;
-  recipientCount: number;
-  testSend: (id: string, email: string) => Promise<ReportActionResult>;
-  send: (id: string) => Promise<ReportActionResult>;
-  schedule: (id: string, whenIso: string) => Promise<ReportActionResult>;
-}) {
-  const { pending, result, run } = useReportAction();
-  const [testEmail, setTestEmail] = useState("");
-  const [when, setWhen] = useState("");
-  const [confirming, setConfirming] = useState(false);
-
-  return (
-    <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-        <Field label="Send a test to" hint="Sends the top-ranked recipient's real email.">
-          <Input
-            type="email"
-            value={testEmail}
-            onChange={(e) => setTestEmail(e.target.value)}
-            placeholder="you@example.com"
-          />
-        </Field>
-        <Button
-          variant="secondary"
-          disabled={pending || !testEmail}
-          onClick={() => run(() => testSend(reportId, testEmail))}
-        >
-          Send test
-        </Button>
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-        <Field label="Or schedule it">
-          <Input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} />
-        </Field>
-        <Button
-          variant="secondary"
-          disabled={pending || !when}
-          onClick={() => run(() => schedule(reportId, new Date(when).toISOString()))}
-        >
-          Schedule
-        </Button>
-      </div>
-
-      <div className="border-t border-[var(--border)] pt-4">
-        {status === "SENT" ? (
-          <p className="text-sm text-[var(--text-muted)]">
-            This report has been sent. Sending again would deliver a second copy of the same week.
-          </p>
-        ) : !confirming ? (
-          <Button onClick={() => setConfirming(true)} disabled={pending}>
-            Send to all {recipientCount} recipients
-          </Button>
-        ) : (
-          <div>
-            <p className="mb-3 text-sm">
-              This delivers {recipientCount} emails immediately. Each one is the exact HTML you can
-              preview above — nothing is re-rendered at send time.
-            </p>
-            <div className="flex gap-2">
-              <Button onClick={() => run(() => send(reportId))} disabled={pending}>
-                {pending ? "Sending…" : "Yes, send now"}
-              </Button>
-              <Button variant="ghost" onClick={() => setConfirming(false)} disabled={pending}>
-                Cancel
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
-
       <Feedback result={result} />
     </div>
   );

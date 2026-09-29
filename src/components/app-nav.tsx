@@ -3,6 +3,19 @@ import { logoutAction } from "@/app/actions/auth";
 import { env } from "@/lib/env";
 import type { SessionUser } from "@/server/auth/session";
 
+// Shared by both layouts: an admin opening their account page lands in the
+// participant layout, and must still see the admin nav rather than links to a
+// portfolio they do not have.
+export const ADMIN_LINKS = [
+  { href: "/admin", label: "Overview" },
+  { href: "/admin/competition", label: "Competition" },
+  { href: "/admin/participants", label: "Participants" },
+  { href: "/admin/stocks", label: "Stocks" },
+  { href: "/admin/leaderboard", label: "Leaderboard" },
+  { href: "/admin/reports", label: "Reports" },
+  { href: "/admin/backups", label: "Backups" },
+];
+
 export function AppNav({
   user,
   links,
@@ -13,7 +26,10 @@ export function AppNav({
   return (
     <header className="border-b border-[var(--border)]">
       <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-3 px-5 py-3.5">
-        <Link href="/dashboard" className="text-sm font-semibold tracking-tight">
+        <Link
+          href={user.role === "ADMIN" ? "/admin" : "/dashboard"}
+          className="text-sm font-semibold tracking-tight"
+        >
           {env.COMPANY_NAME} <span className="text-[var(--text-muted)]">Challenge</span>
         </Link>
 

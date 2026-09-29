@@ -6,7 +6,7 @@ import { loadJoinable } from "@/server/dto/participation";
 import { Card } from "@/components/ui";
 import { toneClass } from "@/components/stat";
 import { daysBetween, formatRemaining } from "@/lib/dates";
-import { requireUser } from "@/server/auth/guard";
+import { requirePlayer } from "@/server/auth/guard";
 import { db } from "@/server/db";
 import { formatCents, formatPpm } from "@/server/money";
 
@@ -14,7 +14,7 @@ export const metadata: Metadata = { title: "Competition" };
 export const dynamic = "force-dynamic";
 
 export default async function CompetitionPage() {
-  const user = await requireUser();
+  const user = await requirePlayer();
 
   const participant = await db.participant.findFirst({
     where: { userId: user.id, deletedAt: null },

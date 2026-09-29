@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { changePasswordAction, updateProfileAction } from "@/app/actions/account";
 import { PasswordForm, ProfileForm } from "@/components/account-forms";
 import { Card } from "@/components/ui";
@@ -61,17 +60,6 @@ export default async function AccountPage() {
           Your address is <strong>{record.email}</strong> and cannot be changed here — it is what
           identifies you in the competition, in every backup, and in the audit trail. Ask an
           administrator if it needs to change.
-        </p>
-      </Card>
-
-      <Card>
-        <h2 className="text-sm font-medium">Notifications</h2>
-        <p className="mt-1 text-sm text-[var(--text-muted)]">
-          What you are told about, and whether it reaches your inbox, is on the{" "}
-          <Link href="/notifications" className="font-medium text-accent-600 hover:text-accent-700">
-            notifications page
-          </Link>
-          .
         </p>
       </Card>
     </div>

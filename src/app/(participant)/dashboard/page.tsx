@@ -131,16 +131,8 @@ export default async function DashboardPage() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Starting capital" value={headline.initialCapital.text} />
-        <Stat
-          label="Today"
-          value={headline.todayGainLoss?.text ?? "—"}
-          ratio={headline.todayReturn}
-        />
-        <Stat
-          label="This week"
-          value={headline.weekGainLoss?.text ?? "—"}
-          ratio={headline.weekReturn}
-        />
+        <Stat label="Today" value={headline.todayGainLoss.text} ratio={headline.todayReturn} />
+        <Stat label="This week" value={headline.weekGainLoss.text} ratio={headline.weekReturn} />
         {headline.shortExposurePpm > 0 ? (
           <Stat
             label="Total exposure"

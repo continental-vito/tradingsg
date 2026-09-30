@@ -1,7 +1,7 @@
 import "server-only";
 import { db } from "@/server/db";
 import { notFound } from "next/navigation";
-import { dateKeyOf } from "@/lib/dates";
+import { addDays, dateKeyOf } from "@/lib/dates";
 import { toPpm } from "@/server/money";
 import { buildPriceBook } from "@/server/portfolio/prices";
 import { valuePortfolio, type PortfolioState } from "@/server/portfolio/value";
@@ -52,10 +52,10 @@ export interface DashboardDto {
     currentValue: MoneyDto;
     totalGainLoss: MoneyDto;
     totalReturn: RatioDto;
-    todayGainLoss: MoneyDto | null;
-    todayReturn: RatioDto | null;
-    weekGainLoss: MoneyDto | null;
-    weekReturn: RatioDto | null;
+    todayGainLoss: MoneyDto;
+    todayReturn: RatioDto;
+    weekGainLoss: MoneyDto;
+    weekReturn: RatioDto;
     cash: MoneyDto;
     cashWeightPpm: number;
     /**
@@ -270,6 +270,20 @@ export async function loadDashboard(userId: string): Promise<DashboardDto | null
   const bestHolding = ranked[0];
   const worstHolding = ranked[ranked.length - 1];
 
+  // What "Today" and "This week" are measured from. Both used to require an
+  // earlier nightly valuation and showed "—" without one — so for a new
+  // competition, a late joiner, or anyone priced live after rebalancing today,
+  // the tiles stayed blank for up to a week. With no earlier close to compare
+  // against, the starting capital is the honest baseline: the portfolio has
+  // not existed for longer than that.
+  const asOf =
+    committedIsCurrent && latest ? latest.asOfDate : dateKeyOf(new Date(), competition.timezone);
+  const closeBefore = (limit: string, inclusive: boolean) =>
+    valuations.filter((v) => (inclusive ? v.asOfDate <= limit : v.asOfDate < limit)).at(-1)
+      ?.totalValueCents ?? portfolio.initialCapitalCents;
+  const todayBaseCents = closeBefore(asOf, false);
+  const weekBaseCents = closeBefore(addDays(asOf, -7), true);
+
   const snapshot = await db.leaderboardSnapshot.findFirst({
     where: { competitionId: competition.id, kind: "DAILY" },
     orderBy: { asOfDate: "desc" },
@@ -299,29 +313,18 @@ export async function loadDashboard(userId: string): Promise<DashboardDto | null
       currentValue: money(currentValueCents, currency),
       totalGainLoss: money(totalGainLossCents, currency),
       totalReturn: ratio(totalReturnPpm),
-      todayGainLoss:
-        committedIsCurrent && latest?.dailyReturnPpm != null && latest.previousValuationId
-          ? money(
-              currentValueCents -
-                (valuations[valuations.length - 2]?.totalValueCents ?? currentValueCents),
-              currency,
-            )
-          : null,
-      todayReturn:
-        committedIsCurrent && latest?.dailyReturnPpm != null ? ratio(latest.dailyReturnPpm) : null,
-      weekGainLoss:
+      todayGainLoss: money(currentValueCents - todayBaseCents, currency),
+      todayReturn: ratio(
+        committedIsCurrent && latest?.dailyReturnPpm != null
+          ? latest.dailyReturnPpm
+          : toPpm(currentValueCents - todayBaseCents, todayBaseCents),
+      ),
+      weekGainLoss: money(currentValueCents - weekBaseCents, currency),
+      weekReturn: ratio(
         committedIsCurrent && latest?.weeklyReturnPpm != null
-          ? money(
-              currentValueCents -
-                (valuations[Math.max(0, valuations.length - 6)]?.totalValueCents ??
-                  currentValueCents),
-              currency,
-            )
-          : null,
-      weekReturn:
-        committedIsCurrent && latest?.weeklyReturnPpm != null
-          ? ratio(latest.weeklyReturnPpm)
-          : null,
+          ? latest.weeklyReturnPpm
+          : toPpm(currentValueCents - weekBaseCents, weekBaseCents),
+      ),
       cash: money(cashCents, currency),
       cashWeightPpm: toPpm(cashCents, currentValueCents),
       grossExposurePpm,

@@ -1,0 +1,6 @@
+# `vercel --prod` from a laptop uploads the working directory, and unlike a
+# Git deploy it does not honour .gitignore — so the local .env went into the
+# production build, filling any variable Vercel does not set with dev values.
+.env
+.env.*
+!.env.example

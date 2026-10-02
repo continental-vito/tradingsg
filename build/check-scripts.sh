@@ -178,11 +178,11 @@ else
     ok "no Float columns in the schema"
 fi
 
-# 9. Every scheduled job is actually reachable, and vercel.json declares no
-#    cron that would have Vercel's Hobby plan refuse the deployment outright.
+# 9. Every job is run by a chain a daily Vercel cron fires, and no cron would
+#    have Vercel's Hobby plan refuse the deployment outright.
 #    See build/check-schedule.py for both failures it caught.
 if drift=$(python3 build/check-schedule.py); then
-    ok "every registered job is reachable, and vercel.json declares no crons"
+    ok "every registered job is fired by a daily Vercel cron"
 else
     echo "${drift}" | while IFS= read -r line; do echo "  ${line}"; done
     fail "the schedule and the job registry disagree"

@@ -1,36 +1,29 @@
-# Drives the scheduled jobs by HTTP, as an alternative to Vercel Cron.
+# Runs a scheduled job by hand, over HTTP.
 #
-# Why this exists: Vercel's Hobby plan allows two cron jobs at daily
-# granularity, and REFUSES THE DEPLOYMENT if vercel.json asks for more —
+# The schedule itself lives in vercel.json: two daily Vercel Crons fire the
+# chains in src/server/jobs/chains.ts, once after the market close and once in
+# the morning. This workflow used to BE the scheduler, on a `*/15` cron — but
+# GitHub treats schedules as best effort and fired it only every four to six
+# hours, so the jobs that waited for a 15-minute evening window never ran and
+# prices stopped updating without a single failed run.
 #
-#   Error: Hobby accounts are limited to daily cron jobs. This cron expression
-#   (*/15 8-22 * * 1-5) would run more than once per day.
-#
-# This app has eight jobs, two of them sub-daily. So vercel.json declares no
-# crons at all and this drives them instead: Actions minutes are free on a
-# public repository, the cron endpoints already authenticate with a bearer
-# token, and it works on any plan.
-#
-# Requires two repository secrets (Settings → Secrets and variables → Actions):
-#   APP_URL      https://your-deployment.vercel.app   (no trailing slash)
+# Kept for re-running something on demand: Actions → Scheduled jobs → Run
+# workflow. Requires two repository secrets (Settings → Secrets and variables →
+# Actions):
+#   APP_URL      https://your-deployment.vercel.app
 #   CRON_SECRET  the same value set in the Vercel project
-#
-# On Vercel Pro you could move these back into vercel.json, but there is little
-# reason to: this already works, and build/check-schedule.py tests it.
 name: Scheduled jobs
 
 on:
-  schedule:
-    # Every 15 minutes. Individual jobs below decide whether they are due, so
-    # one schedule can drive all of them without seven separate workflows.
-    - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       job:
-        description: "Run a single job now"
-        required: false
+        description: "Job (or chain of jobs) to run now"
+        required: true
         type: choice
         options:
+          - nightly
+          - morning
           - refresh-prices
           - close-prices
           - snapshot-valuations
@@ -53,26 +46,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Work out which jobs are due
-        id: due
-        env:
-          MANUAL: ${{ inputs.job }}
-        run: |
-          if [ -n "${MANUAL}" ]; then
-            echo "jobs=${MANUAL}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # The logic lives in build/due-jobs.sh so it can be tested —
-          # build/check-schedule.py sweeps every quarter-hour of a week and
-          # fails if any registered job is never due.
-          jobs=$(bash build/due-jobs.sh "$(date -u +%H)" "$(date -u +%M)" "$(date -u +%u)" | tr '\n' ' ')
-          echo "jobs=${jobs}" >> "$GITHUB_OUTPUT"
-
-      - name: Call each due job
+      - name: Call the job
         env:
           APP_URL: ${{ secrets.APP_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          JOBS: ${{ steps.due.outputs.jobs }}
+          JOBS: ${{ inputs.job }}
         run: |
           if [ -z "${APP_URL}" ] || [ -z "${CRON_SECRET}" ]; then
             echo "::error::APP_URL and CRON_SECRET must both be set as repository secrets."

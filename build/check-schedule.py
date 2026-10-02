@@ -2,94 +2,88 @@
 """Asserts every scheduled job actually gets scheduled, and that vercel.json
 cannot break a Hobby-plan deployment.
 
-Two failures this guards against, both silent:
+Every job runs from one of the chains in src/server/jobs/chains.ts, and each
+chain is fired by a daily Vercel Cron. Three failures this guards against, all
+silent:
 
-1. A job exists in the registry but nothing ever triggers it. There is no
-   error — the job simply never runs, and the first symptom is a leaderboard
-   that stopped updating or backups that were never written. `export-backup`
-   and `housekeeping` were in exactly this state until they were noticed by
-   hand.
+1. A job exists in the registry but no chain runs it. There is no error — the
+   job simply never runs, and the first symptom is a leaderboard that stopped
+   updating. `export-backup` and `housekeeping` were in exactly this state
+   once, and the close/valuation/leaderboard jobs were again when a GitHub
+   Actions `*/15` schedule turned out to fire only every four to six hours.
 
-2. vercel.json declares a sub-daily cron. Vercel's Hobby plan allows two cron
-   jobs at daily granularity and REFUSES THE DEPLOYMENT outright:
+2. A cron points at a path no chain answers, which 404s every night.
+
+3. vercel.json declares a sub-daily cron, or more than two. Vercel's Hobby plan
+   REFUSES THE DEPLOYMENT outright rather than running a reduced schedule:
 
      Error: Hobby accounts are limited to daily cron jobs. This cron expression
      (*/15 8-22 * * 1-5) would run more than once per day.
-
-   So a cron added to vercel.json does not degrade, it stops the site shipping.
-   Scheduling lives in .github/workflows/scheduled-jobs.yml instead, which works
-   on any plan.
-
-Scheduling is checked by simulation, not by reading: every quarter-hour of a
-full week is fed to build/due-jobs.sh and the union of what comes back must
-cover the registry.
 """
 
 import json
 import pathlib
 import re
-import subprocess
 import sys
 
 REGISTRY = pathlib.Path("src/server/jobs/registry.ts")
+CHAINS = pathlib.Path("src/server/jobs/chains.ts")
 VERCEL = pathlib.Path("vercel.json")
 WORKFLOW = pathlib.Path(".github/workflows/scheduled-jobs.yml")
-DUE = "build/due-jobs.sh"
 
 JOB = re.compile(r'name: "([a-z-]+)",\s*\n\s*description: "[^"]*",\s*\n\s*cron: "([^"]+)"')
+CHAIN = re.compile(r"^\s*([a-z]+): \[(.*?)\]", re.S | re.M)
+DAILY = re.compile(r"^\d{1,2} \d{1,2} \* \* [\d*,-]+$")
 
 
-def registered() -> dict[str, str]:
-    jobs = dict(JOB.findall(REGISTRY.read_text()))
-    if not jobs:
-        # A parse failure must not read as "nothing is wrong": the regex is
-        # coupled to the registry's formatting.
-        raise SystemExit(f"parsed no jobs out of {REGISTRY} — this check cannot vouch for anything")
-    return jobs
-
-
-def reachable() -> set[str]:
-    """Every job name build/due-jobs.sh emits across a full week."""
-    seen: set[str] = set()
-    for dow in range(1, 8):
-        for hour in range(24):
-            for minute in (0, 15, 30, 45):
-                out = subprocess.run(
-                    ["bash", DUE, str(hour), str(minute), str(dow)],
-                    capture_output=True, text=True, check=True,
-                )
-                seen.update(line for line in out.stdout.split() if line)
-    return seen
+def parsed(what: str, value):
+    # A parse failure must not read as "nothing is wrong": both regexes are
+    # coupled to the formatting of the files they read.
+    if not value:
+        raise SystemExit(f"parsed no {what} — this check cannot vouch for anything")
+    return value
 
 
 def main() -> int:
     problems: list[str] = []
-    jobs = registered()
+    jobs = parsed(f"jobs out of {REGISTRY}", dict(JOB.findall(REGISTRY.read_text())))
+    chains = parsed(
+        f"chains out of {CHAINS}",
+        {name: re.findall(r'"([a-z-]+)"', body) for name, body in CHAIN.findall(CHAINS.read_text())},
+    )
+    crons = json.loads(VERCEL.read_text()).get("crons", []) if VERCEL.exists() else []
 
-    never = sorted(set(jobs) - reachable())
-    for name in never:
-        problems.append(f"{name} is registered but build/due-jobs.sh never emits it — it would never run")
+    fired: set[str] = set()
+    for cron in crons:
+        path, schedule = cron.get("path", ""), cron.get("schedule", "")
+        if not DAILY.match(schedule):
+            problems.append(
+                f"vercel.json cron {path} runs on '{schedule}' — Hobby allows daily only and "
+                "rejects the whole deployment otherwise"
+            )
+        chain = path.removeprefix("/api/cron/")
+        if chain not in chains:
+            problems.append(f"vercel.json cron {path} names no chain in {CHAINS.name} — it would 404")
+        else:
+            fired.add(chain)
+    if len(crons) > 2:
+        problems.append(f"vercel.json declares {len(crons)} crons; the Hobby plan allows two")
 
-    unknown = sorted(reachable() - set(jobs))
-    for name in unknown:
-        problems.append(f"build/due-jobs.sh emits {name}, which no job in the registry provides")
+    covered = {job for chain in fired for job in chains[chain]}
+    for name in sorted(set(jobs) - covered):
+        problems.append(f"{name} is registered but no cron-fired chain runs it — it would never run")
+    for chain, members in chains.items():
+        for name in members:
+            if name not in jobs:
+                problems.append(f"chain {chain} runs {name}, which no job in the registry provides")
 
-    # The workflow's manual-run dropdown should offer every job, or a job cannot
-    # be triggered by hand when something needs re-running.
+    # The workflow's manual-run dropdown should offer every job and chain, or
+    # something cannot be re-run by hand when it needs to be.
     if WORKFLOW.exists():
         workflow = WORKFLOW.read_text()
-        for name in jobs:
+        for name in [*jobs, *chains]:
             if f"- {name}" not in workflow:
                 problems.append(f"{name} is missing from the workflow_dispatch choices in {WORKFLOW.name}")
-
-    # A cron here is not a smaller version of the schedule — it is a failed
-    # deployment on the Hobby plan.
-    crons = json.loads(VERCEL.read_text()).get("crons", []) if VERCEL.exists() else []
-    if crons:
-        problems.append(
-            f"vercel.json declares {len(crons)} cron(s). Hobby allows two, daily only, and rejects "
-            "the deployment otherwise — scheduling belongs in .github/workflows/scheduled-jobs.yml"
-        )
 
     for problem in problems:
         print(problem)

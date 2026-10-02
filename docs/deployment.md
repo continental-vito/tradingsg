@@ -185,56 +185,57 @@ Commit the generated directory. The test suite applies every migration in
 
 ---
 
-## 6. Scheduled jobs — GitHub Actions, not Vercel Cron
+## 6. Scheduled jobs — two daily Vercel Crons
 
-**Vercel's Hobby plan allows two cron jobs at daily granularity, and refuses
-the deployment outright if `vercel.json` asks for more:**
+Everything updates **once a day, after the market close**. `vercel.json`
+declares two crons, each firing a chain from `src/server/jobs/chains.ts`:
+
+| Cron                | When (UTC, ±1 h) | Runs, in order                                                             |
+| ------------------- | ---------------- | -------------------------------------------------------------------------- |
+| `/api/cron/nightly` | 20:00            | refresh-prices → close-prices → snapshot-valuations → leaderboard → backup |
+| `/api/cron/morning` | 04:00            | run-notifications → housekeeping → build-weekly-report (once a week)       |
+
+20:00 UTC is 22:00 in Berlin in summer and 21:00 in winter — after the XETRA
+close, and still the same Berlin day, so the close being valued is today's.
+Hobby crons fire somewhere within the hour; both chains are idempotent and
+backfill any missed day, so the exact minute does not matter.
+
+Vercel sends `Authorization: Bearer $CRON_SECRET` with each cron call by
+itself, so `CRON_SECRET` must be set in the Vercel project — without it the
+cron routes 404 by design.
+
+**Hobby limits that shape this:** at most two crons, daily only. A sub-daily
+expression does not run less often — Vercel refuses the whole deployment:
 
 ```
 Error: Hobby accounts are limited to daily cron jobs. This cron expression
 (*/15 8-22 * * 1-5) would run more than once per day.
 ```
 
-That is not a degraded schedule — it stops the site shipping at all. This app
-has eight jobs and two are sub-daily (`refresh-prices` every 15 minutes during
-market hours, `run-notifications` hourly).
+`build/check-schedule.py` fails CI on a sub-daily or third cron, on a cron
+that names no chain, and on any registered job no chain runs.
 
-So **`vercel.json` declares no crons**, and
-`.github/workflows/scheduled-jobs.yml` drives them over HTTP instead. Actions
-minutes are free on a public repository, the cron endpoints already
-authenticate with a bearer token, and it works on any plan.
-`build/check-scripts.sh` fails if a cron is ever added back.
+### Why not GitHub Actions any more
 
-Add two repository secrets under **Settings → Secrets and variables → Actions**:
+This used to be a GitHub Actions workflow on a `*/15` schedule. GitHub treats
+schedules as best effort and fired it only every four to six hours, so the jobs
+waiting for a 15-minute evening window never ran: prices, valuations and the
+leaderboard froze with no failed run to show for it.
 
-| Secret        | Value                                             |
-| ------------- | ------------------------------------------------- |
-| `APP_URL`     | `https://your-app.vercel.app` (no trailing slash) |
-| `CRON_SECRET` | the same value as in Vercel                       |
+`.github/workflows/scheduled-jobs.yml` remains for **manual** runs — Actions →
+Scheduled jobs → Run workflow → pick `nightly` or any single job. It needs two
+repository secrets:
 
-Then trigger one by hand from the Actions tab (**Run workflow** → pick
-`refresh-prices`) and read the log — it prints each job's response body.
-
-### How the schedule is decided
-
-`build/due-jobs.sh` takes a UTC hour, minute and weekday and prints what is
-due. The workflow wakes every 15 minutes and calls it.
-
-It is a script rather than logic inside the workflow so that it can be tested:
-`build/check-schedule.py` feeds it all 672 quarter-hours of a week and fails if
-any registered job is never due. A job that silently never runs is the failure
-that matters here — there is no error, just backups that were never written.
-
-### If you upgrade to Vercel Pro
-
-You could move the schedules back into `vercel.json` — `cron` on each entry in
-`src/server/jobs/registry.ts` is still the intended cadence — but there is
-little reason to. The Actions path already works and is tested.
+| Secret        | Value                         |
+| ------------- | ----------------------------- |
+| `APP_URL`     | `https://your-app.vercel.app` |
+| `CRON_SECRET` | the same value as in Vercel   |
 
 ### Self-hosting instead
 
 `make worker` runs the same job implementations under a long-lived `node-cron`
-process. No `vercel.json`, no `CRON_SECRET`, no Actions.
+process, on each job's own `cron` cadence in `src/server/jobs/registry.ts`.
+No Vercel Cron, no `CRON_SECRET`, no Actions.
 
 ---
 

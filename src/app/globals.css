@@ -148,6 +148,42 @@
   --chart-other: #677186;
 }
 
+/*
+ * The participant's own row and summary card on the leaderboard. Their tint is
+ * the light accent-50 at partial opacity, which on the dark surface turns into
+ * a mid-grey band — and the light text on it all but disappeared. Rather than
+ * fight that, dark mode makes the highlight a solid light tint and switches
+ * everything on it to dark ink, so "this is you" reads the same in both themes.
+ * Gains and losses step one shade darker to keep their contrast on the tint.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .you-highlight {
+    --text: var(--color-ink-900);
+    --text-muted: var(--color-ink-600);
+    background-color: color-mix(in srgb, var(--color-accent-100) 92%, transparent);
+    color: var(--text);
+  }
+  :root:not([data-theme="light"]) .you-highlight .text-up-600 {
+    color: var(--color-up-700);
+  }
+  :root:not([data-theme="light"]) .you-highlight .text-down-600 {
+    color: var(--color-down-700);
+  }
+}
+
+:root[data-theme="dark"] .you-highlight {
+  --text: var(--color-ink-900);
+  --text-muted: var(--color-ink-600);
+  background-color: color-mix(in srgb, var(--color-accent-100) 92%, transparent);
+  color: var(--text);
+}
+:root[data-theme="dark"] .you-highlight .text-up-600 {
+  color: var(--color-up-700);
+}
+:root[data-theme="dark"] .you-highlight .text-down-600 {
+  color: var(--color-down-700);
+}
+
 body {
   background: var(--surface);
   color: var(--text);

@@ -126,7 +126,7 @@ export default async function LeaderboardPage({
           22nd — scrolling to find yourself is the single most common thing
           anyone does on a leaderboard. */}
       {data.you ? (
-        <Card className="border-accent-500/40 bg-accent-50/40">
+        <Card className="you-highlight border-accent-500/40 bg-accent-50/40">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <div className="text-sm text-[var(--text-muted)]">
@@ -271,7 +271,8 @@ function Row({ row, canOpen }: { row: LeaderboardRow; canOpen: boolean }) {
   return (
     <tr
       className={
-        "border-b border-[var(--border)] last:border-0 " + (row.isYou ? "bg-accent-50/60" : "")
+        "border-b border-[var(--border)] last:border-0 " +
+        (row.isYou ? "you-highlight bg-accent-50/60" : "")
       }
     >
       <td className="px-5 py-3">

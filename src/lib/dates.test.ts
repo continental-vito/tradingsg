@@ -4,6 +4,7 @@ import {
   dateKeyOf,
   daysBetween,
   eachTradingDay,
+  weekCloseDays,
   endOfWeek,
   isoWeekOf,
   isWeekend,
@@ -91,5 +92,27 @@ describe("periodKeyFor", () => {
   it("buckets by day and by month", () => {
     expect(periodKeyFor("2026-09-04", "DAY")).toBe("2026-09-04");
     expect(periodKeyFor("2026-09-04", "MONTH")).toBe("2026-09");
+  });
+});
+
+describe("weekCloseDays", () => {
+  it("closes each week on Friday, never on the day a job happened to run", () => {
+    expect(weekCloseDays("2026-07-20", "2026-08-30", "2026-08-05")).toEqual([
+      "2026-07-24",
+      "2026-07-31",
+    ]);
+  });
+
+  it("closes the final week on the last day when the competition ends mid-week", () => {
+    // Otherwise the last few days of a competition ending on a Wednesday would
+    // never appear in any weekly snapshot or report.
+    expect(weekCloseDays("2026-07-20", "2026-07-29", "2026-08-30")).toEqual([
+      "2026-07-24",
+      "2026-07-29",
+    ]);
+  });
+
+  it("uses the last trading day when the competition ends on a weekend", () => {
+    expect(weekCloseDays("2026-07-20", "2026-07-26", "2026-08-30")).toEqual(["2026-07-24"]);
   });
 });

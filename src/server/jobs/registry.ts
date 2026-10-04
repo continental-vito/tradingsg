@@ -1,5 +1,13 @@
 import type { PrismaClient } from "@/generated/prisma/client";
-import { addDays, dateKeyOf, eachTradingDay, isoWeekOf, type DateKey } from "@/lib/dates";
+import {
+  addDays,
+  dateKeyOf,
+  eachTradingDay,
+  isoWeekOf,
+  startOfWeek,
+  weekCloseDays,
+  type DateKey,
+} from "@/lib/dates";
 import { backfillPrices, missingTradingDays, refreshQuoteCache } from "./prices";
 import { snapshotLeaderboard } from "./leaderboard";
 import { snapshotValuations } from "./valuations";
@@ -199,26 +207,71 @@ export const JOBS: JobDefinition[] = [
                 }),
             ),
           );
-          // Sunday also closes the competition week.
-          if (new Date(`${day}T00:00:00Z`).getUTCDay() === 0 || day === today) {
-            outcomes.push(
-              await runJob(
-                db,
-                {
-                  jobName: "snapshot-leaderboard",
-                  runKey: `${competition.slug}:WEEKLY:${isoWeekOf(day)}`,
-                  triggeredBy: args.triggeredBy,
-                  force: args.force,
-                },
-                (ctx) =>
-                  snapshotLeaderboard(ctx, {
+        }
+
+        // The week's standings are Friday's close. Checked across the whole
+        // competition rather than only for days the loop above just ranked, so
+        // a missed Friday is filled in by the next run instead of never.
+        const weeklyDone = new Set(
+          (
+            await db.leaderboardSnapshot.findMany({
+              where: { competitionId: competition.id, kind: "WEEKLY" },
+              select: { asOfDate: true },
+            })
+          ).map((s) => s.asOfDate),
+        );
+        const dailyDone = new Set(
+          (
+            await db.leaderboardSnapshot.findMany({
+              where: { competitionId: competition.id, kind: "DAILY" },
+              select: { asOfDate: true },
+            })
+          ).map((s) => s.asOfDate),
+        );
+        for (const day of weekCloseDays(competition.startDate, competition.endDate, today)) {
+          // Ranked only once that day's own standings exist, i.e. after its
+          // valuations — never on carried-forward numbers from earlier in the week.
+          if (weeklyDone.has(day) || !dailyDone.has(day)) continue;
+          outcomes.push(
+            await runJob(
+              db,
+              {
+                jobName: "snapshot-leaderboard",
+                runKey: `${competition.slug}:WEEKLY:${day}`,
+                triggeredBy: args.triggeredBy,
+                force: args.force,
+              },
+              async (ctx) => {
+                // Before the fix the weekly snapshot was taken on whichever day
+                // the job first ran that week. Those mid-week rows would sit in
+                // the same week as Friday's — an extra point in the admin chart,
+                // and the "previous week" Friday's rank changes are measured
+                // against. Dropped, unless a report was built from one: a
+                // report's snapshot is history and the schema refuses to orphan it.
+                const stale = await ctx.db.leaderboardSnapshot.findMany({
+                  where: {
                     competitionId: competition.id,
-                    asOfDate: day,
                     kind: "WEEKLY",
-                  }),
-              ),
-            );
-          }
+                    asOfDate: { gte: startOfWeek(day), lt: day },
+                    reports: { none: {} },
+                  },
+                  select: { id: true, asOfDate: true },
+                });
+                for (const row of stale) {
+                  await ctx.db.leaderboardSnapshotEntry.deleteMany({
+                    where: { snapshotId: row.id },
+                  });
+                  await ctx.db.leaderboardSnapshot.delete({ where: { id: row.id } });
+                  ctx.log(`replaced mid-week weekly snapshot from ${row.asOfDate}`);
+                }
+                return snapshotLeaderboard(ctx, {
+                  competitionId: competition.id,
+                  asOfDate: day,
+                  kind: "WEEKLY",
+                });
+              },
+            ),
+          );
         }
       }
       return outcomes;

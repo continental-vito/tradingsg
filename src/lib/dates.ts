@@ -75,6 +75,20 @@ export function eachTradingDay(from: DateKey, to: DateKey): DateKey[] {
   return eachDate(from, to).filter((k) => !isWeekend(k));
 }
 
+/**
+ * The days whose close ends a competition week, up to `through`: every Friday,
+ * plus the competition's last trading day when it does not fall on one.
+ *
+ * Friday rather than "whenever the job first ran that week" — keying the weekly
+ * snapshot to the ISO week froze it on the first evening it ran, so a week that
+ * started being tracked on a Wednesday was reported with Wednesday's standings.
+ */
+export function weekCloseDays(start: DateKey, end: DateKey, through: DateKey): DateKey[] {
+  const last = eachTradingDay(start, end).at(-1);
+  const upTo = through < end ? through : end;
+  return eachTradingDay(start, upTo).filter((k) => weekdayOf(k) === 5 || k === last);
+}
+
 /** The Monday-based (or `weekStartsOn`-based) start of the week containing `key`. */
 export function startOfWeek(key: DateKey, weekStartsOn = 1): DateKey {
   const day = weekdayOf(key);

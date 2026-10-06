@@ -185,6 +185,14 @@ Commit the generated directory. The test suite applies every migration in
 
 ---
 
+## Function region — keep it next to the database
+
+`vercel.json` pins functions to **`fra1` (Frankfurt)** because the Neon database
+is in `eu-central-1`. Vercel's default is `iad1` (Washington), which put every
+query across the Atlantic — about 90 ms per round trip, several per page — and
+made navigation feel unresponsive. If the database ever moves, move this with
+it; a region far from the database costs more than any code optimisation wins.
+
 ## 6. Scheduled jobs — two daily Vercel Crons
 
 Everything updates **once a day, after the market close**. `vercel.json`

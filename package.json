@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
+    "build": "node build/migrate-on-deploy.mjs && prisma generate && next build",
     "start": "next start",
     "worker": "tsx src/server/jobs/worker.ts",
     "job": "tsx src/server/jobs/cli.ts",

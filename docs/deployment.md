@@ -314,18 +314,22 @@ that drops or renames anything:
 
 ## Upgrading an existing deployment
 
-Vercel's build does not touch the database. When a release adds a migration
-(`prisma/migrations/<n>_…`), apply it from your checkout with the **direct**
-URL in `.env`, before or right after the deploy:
+Migrations apply themselves. On a Vercel **production** build,
+`build/migrate-on-deploy.mjs` runs `prisma migrate deploy` before the app is
+built, over Neon's direct endpoint, which it derives from the pooled
+`DATABASE_URL` by dropping `-pooler` from the hostname. A migration that fails
+fails the build, so the previous deployment stays live rather than new code
+running against an old schema.
+
+Preview builds skip it, because they share the production database, and so do
+local builds and CI. To apply migrations by hand anyway, use the direct string:
 
 ```bash
-npx prisma migrate deploy
+DATABASE_URL="<direct connection string>" npx prisma migrate deploy
 ```
 
 The AI investor migrations (`1_ai_investor`, `2_ai_investor_manual`) only touch
-the AI investor's own table, so the rest of the app keeps working if the deploy
-lands first — `/admin/ai` says the table is missing until the migrations have
-run.
+the AI investor's own table.
 
 ### The AI investor
 

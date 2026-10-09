@@ -9,6 +9,9 @@ import { Alert, Card, EmptyState } from "@/components/ui";
 import { toneClass } from "@/components/stat";
 import { requirePlayer } from "@/server/auth/guard";
 import { loadDashboard } from "@/server/dto/portfolio.dto";
+import { db } from "@/server/db";
+import { loadTradingAccess } from "@/server/portfolio/access";
+import { TokenBanner } from "@/components/rebalance-token";
 
 export const metadata: Metadata = { title: "Portfolio" };
 export const dynamic = "force-dynamic";
@@ -22,6 +25,10 @@ export default async function PortfolioPage() {
   }
 
   const { holdings, headline } = data;
+  const access = data.participant.portfolioId
+    ? await loadTradingAccess(db, data.participant.portfolioId)
+    : null;
+  const canTrade = access?.decision.allowed ?? true;
 
   // Shorts are liabilities and cannot be slices of a whole; they are listed
   // under the chart instead. Same split as the dashboard.
@@ -60,14 +67,22 @@ export default async function PortfolioPage() {
           >
             Transaction history
           </Link>
-          <Link
-            href="/portfolio/allocate"
-            className="rounded-lg bg-accent-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-700"
-          >
-            Change allocation
-          </Link>
+          {canTrade ? (
+            <Link
+              href="/portfolio/allocate"
+              className="rounded-lg bg-accent-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-700"
+            >
+              Change allocation
+            </Link>
+          ) : null}
         </div>
       </div>
+
+      {access && !canTrade ? (
+        <TokenBanner tokens={access.tokens} reason={access.decision.reason?.message} />
+      ) : access?.tokens ? (
+        <TokenBanner tokens={access.tokens} />
+      ) : null}
 
       {headline.isLive && holdings.length > 0 ? (
         <Alert tone="info">

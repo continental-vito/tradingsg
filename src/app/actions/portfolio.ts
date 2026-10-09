@@ -11,7 +11,7 @@ import { money, ratio, shares } from "@/server/dto/serialize";
 import { commitRebalance, loadTradingRules } from "@/server/portfolio/commit";
 import { buildPriceBook } from "@/server/portfolio/prices";
 import { planRebalance, type ValidationIssue } from "@/server/portfolio/rebalance";
-import { evaluateTradingWindow } from "@/server/portfolio/window";
+import { loadTradingAccess } from "@/server/portfolio/access";
 import type { PortfolioState } from "@/server/portfolio/value";
 
 /**
@@ -72,7 +72,6 @@ async function loadContext(portfolioId: string) {
       competition: {
         include: {
           settings: { where: { supersededAt: null }, orderBy: { revision: "desc" }, take: 1 },
-          tradingWindows: { where: { isActive: true } },
         },
       },
     },
@@ -121,29 +120,20 @@ async function buildPlan(portfolioId: string, rawTargets: unknown) {
   const now = new Date();
   const asOfDate = dateKeyOf(now, portfolio.competition.timezone);
 
-  const changesThisPeriod = await db.rebalanceRequest.count({
-    where: { portfolioId, status: "COMMITTED", periodKey: { not: null } },
-  });
-
-  const window = evaluateTradingWindow({
-    rules: {
-      tradingMode: settings.tradingMode,
-      periodUnit: settings.periodUnit as "DAY" | "WEEK" | "MONTH",
-      maxChangesPerPeriod: settings.maxChangesPerPeriod,
-      lockAfterDate: settings.lockAfterDate,
-      allowTradingBeforeStart: settings.allowTradingBeforeStart,
-      timezone: portfolio.competition.timezone,
-      weekStartsOn: portfolio.competition.weekStartsOn,
-    },
-    competition: {
-      status: portfolio.competition.status,
-      startsAt: portfolio.competition.startsAt,
-      endsAt: portfolio.competition.endsAt,
-    },
-    openWindows: portfolio.competition.tradingWindows,
-    changesThisPeriod,
-    now,
-  });
+  // The same check the allocation page and the AI investor use, so the page,
+  // the preview and the commit can never disagree about whether a token is left.
+  const access = await loadTradingAccess(db, portfolioId, now);
+  if (!access) {
+    return {
+      kind: "error" as const,
+      error: {
+        code: "NO_SETTINGS",
+        message: "This competition has no rules configured yet. Ask the administrator.",
+        severity: "ERROR" as const,
+      },
+    };
+  }
+  const window = access.decision;
 
   const { rules } = await loadTradingRules(db, portfolio.competitionId);
 

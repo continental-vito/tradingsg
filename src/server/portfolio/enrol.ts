@@ -24,7 +24,16 @@ export type EnrolResult =
 
 export async function enrolInCompetition(
   db: PrismaClient,
-  args: { userId: string; competitionId?: string },
+  args: {
+    userId: string;
+    competitionId?: string;
+    /**
+     * An administrator enrolling the AI investor. Registration being closed is
+     * a rule for people signing themselves up, not for the person running it.
+     */
+    byAdmin?: boolean;
+    displayName?: string;
+  },
 ): Promise<EnrolResult> {
   const competition = args.competitionId
     ? await db.competition.findUnique({ where: { id: args.competitionId } })
@@ -56,7 +65,7 @@ export async function enrolInCompetition(
     };
   }
 
-  if (!competition.registrationOpen) {
+  if (!competition.registrationOpen && !args.byAdmin) {
     return {
       ok: false,
       code: "REGISTRATION_CLOSED",
@@ -98,7 +107,7 @@ export async function enrolInCompetition(
           competitionId: competition.id,
           // Surname initial only, matching the seeded participants, so the
           // leaderboard reads consistently whoever created the row.
-          displayName: `${user.firstName} ${user.lastName.charAt(0)}.`,
+          displayName: args.displayName ?? `${user.firstName} ${user.lastName.charAt(0)}.`,
           initialCapitalCents: capital,
           status: "REGISTERED",
           joinedAt,

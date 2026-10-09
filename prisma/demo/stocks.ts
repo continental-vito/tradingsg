@@ -1,232 +1,74 @@
 /**
- * The default stock universe. Prices are seeded by the mock market-data
- * provider, not hard-coded here — a price in a fixture goes stale the moment
- * it is written, and the generator needs an anchor rather than a snapshot.
+ * The demo stock universe: the real one, from src/server/competition/universe.ts,
+ * with the anchors the synthetic price generator needs. Prices are generated
+ * by the mock market-data provider, not hard-coded here — a price in a fixture
+ * goes stale the moment it is written, and the generator needs an anchor rather
+ * than a snapshot.
  *
- * `anchorCents` is that anchor: roughly where the name traded when this file was
- * written, used as the starting point of the synthetic series. `driftBps` and
- * `volBps` are the annualised drift and daily volatility the generator applies,
- * chosen so the demo leaderboard has a believable spread of winners and losers
- * rather than thirty participants clustered at ±0.4%.
+ * `anchorCents` is roughly where the name traded when this file was written,
+ * used as the starting point of the synthetic series. `driftBps` and `volBps`
+ * are the annualised drift and daily volatility the generator applies, chosen
+ * so the demo leaderboard has a believable spread of winners and losers rather
+ * than thirty participants clustered at ±0.4%.
  */
-export interface DemoStock {
-  symbol: string;
-  /**
-   * The listing to fetch from a real provider. Every one is EUR-quoted and
-   * was verified against Yahoo before being written here: the US names use
-   * their XETRA lines (Apple as APC.DE, not AAPL) because this competition
-   * values everything in euro and the engine does not convert currencies.
-   * Nestlé, Novo Nordisk and Shell use their EUR listings for the same
-   * reason — their home lines quote in CHF, DKK and pence, and pence would
-   * be a hundredfold error.
-   */
-  providerSymbol: string;
-  name: string;
-  exchange: string;
+import { UNIVERSE, type UniverseEntry } from "../../src/server/competition/universe";
+
+export interface DemoStock extends UniverseEntry {
   currency: string;
-  sector: string;
   anchorCents: bigint;
   driftBps: number;
   volBps: number;
 }
 
-export const DEMO_STOCKS: DemoStock[] = [
-  {
-    symbol: "AAPL",
-    providerSymbol: "APC.DE",
-    name: "Apple",
-    exchange: "NASDAQ",
-    currency: "EUR",
-    sector: "Technology",
-    anchorCents: 21_450n,
-    driftBps: 900,
-    volBps: 145,
-  },
-  {
-    symbol: "MSFT",
-    providerSymbol: "MSF.DE",
-    name: "Microsoft",
-    exchange: "NASDAQ",
-    currency: "EUR",
-    sector: "Technology",
-    anchorCents: 38_900n,
-    driftBps: 1100,
-    volBps: 132,
-  },
-  {
-    symbol: "NVDA",
-    providerSymbol: "NVD.DE",
-    name: "Nvidia",
-    exchange: "NASDAQ",
-    currency: "EUR",
-    sector: "Semiconductors",
-    anchorCents: 11_280n,
-    driftBps: 2600,
-    volBps: 310,
-  },
-  {
-    symbol: "AMZN",
-    providerSymbol: "AMZ.DE",
-    name: "Amazon",
-    exchange: "NASDAQ",
-    currency: "EUR",
-    sector: "Consumer Discretionary",
-    anchorCents: 17_640n,
-    driftBps: 1200,
-    volBps: 178,
-  },
-  {
-    symbol: "GOOGL",
-    providerSymbol: "ABEA.DE",
-    name: "Alphabet",
-    exchange: "NASDAQ",
-    currency: "EUR",
-    sector: "Communication Services",
-    anchorCents: 16_310n,
-    driftBps: 1000,
-    volBps: 165,
-  },
-  {
-    symbol: "TSLA",
-    providerSymbol: "TL0.DE",
-    name: "Tesla",
-    exchange: "NASDAQ",
-    currency: "EUR",
-    sector: "Automotive",
-    anchorCents: 22_070n,
-    driftBps: -400,
-    volBps: 395,
-  },
-  {
-    symbol: "META",
-    providerSymbol: "FB2A.DE",
-    name: "Meta Platforms",
-    exchange: "NASDAQ",
-    currency: "EUR",
-    sector: "Communication Services",
-    anchorCents: 52_400n,
-    driftBps: 1400,
-    volBps: 205,
-  },
-  {
-    symbol: "SAP",
-    providerSymbol: "SAP.DE",
-    name: "SAP",
-    exchange: "XETRA",
-    currency: "EUR",
-    sector: "Technology",
-    anchorCents: 22_980n,
-    driftBps: 800,
-    volBps: 118,
-  },
-  {
-    symbol: "ASML",
-    providerSymbol: "ASML.AS",
-    name: "ASML Holding",
-    exchange: "AMS",
-    currency: "EUR",
-    sector: "Semiconductors",
-    anchorCents: 68_500n,
-    driftBps: 1500,
-    volBps: 232,
-  },
-  {
-    symbol: "SIE",
-    providerSymbol: "SIE.DE",
-    name: "Siemens",
-    exchange: "XETRA",
-    currency: "EUR",
-    sector: "Industrials",
-    anchorCents: 19_120n,
-    driftBps: 600,
-    volBps: 124,
-  },
-  {
-    symbol: "MC",
-    providerSymbol: "MC.PA",
-    name: "LVMH",
-    exchange: "EPA",
-    currency: "EUR",
-    sector: "Consumer Discretionary",
-    anchorCents: 62_300n,
-    driftBps: 200,
-    volBps: 158,
-  },
-  {
-    symbol: "NESN",
-    providerSymbol: "NESR.DE",
-    name: "Nestlé",
-    exchange: "SIX",
-    currency: "EUR",
-    sector: "Consumer Staples",
-    anchorCents: 8_640n,
-    driftBps: 150,
-    volBps: 78,
-  },
-  {
-    symbol: "NOVO",
-    providerSymbol: "NOV.DE",
-    name: "Novo Nordisk",
-    exchange: "CPH",
-    currency: "EUR",
-    sector: "Healthcare",
-    anchorCents: 9_820n,
-    driftBps: -600,
-    volBps: 245,
-  },
-  {
-    symbol: "AIR",
-    providerSymbol: "AIR.PA",
-    name: "Airbus",
-    exchange: "EPA",
-    currency: "EUR",
-    sector: "Industrials",
-    anchorCents: 16_450n,
-    driftBps: 700,
-    volBps: 142,
-  },
-  {
-    symbol: "SHEL",
-    providerSymbol: "SHELL.AS",
-    name: "Shell",
-    exchange: "LSE",
-    currency: "EUR",
-    sector: "Energy",
-    anchorCents: 3_190n,
-    driftBps: 300,
-    volBps: 156,
-  },
-  {
-    symbol: "ADYEN",
-    providerSymbol: "ADYEN.AS",
-    name: "Adyen",
-    exchange: "AMS",
-    currency: "EUR",
-    sector: "Financials",
-    anchorCents: 148_200n,
-    driftBps: 1800,
-    volBps: 288,
-  },
-  {
-    symbol: "ALV",
-    providerSymbol: "ALV.DE",
-    name: "Allianz",
-    exchange: "XETRA",
-    currency: "EUR",
-    sector: "Financials",
-    anchorCents: 33_400n,
-    driftBps: 500,
-    volBps: 96,
-  },
-  {
-    symbol: "OR",
-    providerSymbol: "OR.PA",
-    name: "L'Oréal",
-    exchange: "EPA",
-    currency: "EUR",
-    sector: "Consumer Staples",
-    anchorCents: 37_800n,
-    driftBps: -200,
-    volBps: 112,
-  },
-];
+/** [anchor in cents, annual drift in bps, daily volatility in bps] */
+const PROFILES: Record<string, [bigint, number, number]> = {
+  AC: [4_550n, 900, 170],
+  AI: [17_400n, 600, 95],
+  AIR: [19_800n, 1_100, 150],
+  MT: [2_950n, 300, 210],
+  CS: [3_980n, 700, 115],
+  BNP: [7_600n, 800, 150],
+  EN: [3_900n, 400, 120],
+  BVI: [2_820n, 300, 110],
+  CAP: [14_800n, -500, 190],
+  CA: [1_340n, -200, 140],
+  ACA: [1_620n, 700, 145],
+  BN: [7_250n, 500, 90],
+  DSY: [2_790n, -900, 200],
+  FGR: [12_100n, 1_300, 125],
+  ENGI: [1_850n, 900, 105],
+  EL: [26_400n, 800, 120],
+  ERF: [6_450n, 200, 185],
+  ENX: [13_300n, 1_200, 130],
+  RMS: [219_000n, 400, 150],
+  KER: [24_800n, -600, 260],
+  OR: [37_800n, -200, 112],
+  LR: [12_200n, 900, 120],
+  MC: [62_300n, 200, 158],
+  ML: [3_180n, -100, 135],
+  ORA: [1_420n, 1_000, 95],
+  RI: [8_900n, -800, 160],
+  PUB: [8_850n, 100, 140],
+  RNO: [4_050n, -300, 215],
+  SAF: [28_600n, 1_500, 140],
+  SGO: [9_600n, 700, 150],
+  SAN: [8_420n, -400, 125],
+  SU: [23_100n, 1_000, 150],
+  GLE: [5_480n, 1_400, 190],
+  STLAP: [880n, -900, 260],
+  STMPA: [2_250n, 300, 280],
+  HO: [24_900n, 1_600, 170],
+  TTE: [5_380n, 200, 125],
+  URW: [8_640n, 500, 175],
+  VIE: [2_980n, 500, 105],
+  DG: [11_950n, 600, 110],
+  BTC: [9_450_000n, 2_000, 320],
+  SXR8: [57_800n, 900, 95],
+};
+
+export const DEMO_STOCKS: DemoStock[] = UNIVERSE.map((entry) => {
+  const profile = PROFILES[entry.symbol];
+  if (!profile) throw new Error(`prisma/demo/stocks.ts has no price profile for ${entry.symbol}.`);
+  const [anchorCents, driftBps, volBps] = profile;
+  return { ...entry, currency: "EUR", anchorCents, driftBps, volBps };
+});

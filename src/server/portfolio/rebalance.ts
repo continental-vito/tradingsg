@@ -296,19 +296,51 @@ export function planRebalance(args: {
   }
 
   // ── Target share counts ──────────────────────────────────────────────────
-  const targetMicro = new Map<string, MicroShares>();
-  for (const t of targets) {
-    const price = priceOf.get(t.stockId);
-    if (!price) continue;
-    // Floor at both steps, so the plan under-invests by a few cents rather than
-    // over-committing. Under is the safe direction: it can never overdraw, and
-    // for a short it means never opening one larger than was asked for.
-    const targetValue = (preValueCents * BigInt(t.weightPpm)) / PPM;
-    targetMicro.set(
-      t.stockId,
-      sharesFor(targetValue, price, { fractional: rules.allowFractionalShares }),
-    );
+  const sizeTargets = (baseCents: Cents): Map<string, MicroShares> => {
+    const sized = new Map<string, MicroShares>();
+    for (const t of targets) {
+      const price = priceOf.get(t.stockId);
+      if (!price) continue;
+      // Floor at both steps, so the plan under-invests by a few cents rather
+      // than over-committing. Under is the safe direction: it can never
+      // overdraw, and for a short it means never opening one larger than was
+      // asked for.
+      const targetValue = (baseCents * BigInt(t.weightPpm)) / PPM;
+      sized.set(
+        t.stockId,
+        sharesFor(targetValue, price, { fractional: rules.allowFractionalShares }),
+      );
+    }
+    return sized;
+  };
+
+  // A weight is a share of the portfolio AFTER the rebalance, and fees make
+  // that smaller than the portfolio before it. Sized against the pre-trade
+  // value, a 30% target under a 1% fee lands at 30.2% of what is left — over a
+  // 30% cap the participant never asked to exceed. So the base is the value
+  // net of the fees the trades will cost, found by a few fixed-point passes:
+  // fees shrink the base, a smaller base trades less and costs less, and three
+  // passes settle to well under a cent. Without fees the base is preValue and
+  // nothing changes.
+  let sizingBaseCents = preValueCents;
+  for (let pass = 0; pass < 3; pass++) {
+    let estimatedFees = 0n;
+    for (const [stockId, target] of sizeTargets(sizingBaseCents)) {
+      const price = priceOf.get(stockId) ?? 0n;
+      const delta = target - (current.get(stockId)?.microShares ?? 0n);
+      if (delta !== 0n) estimatedFees += feeFor(marketValue(absShares(delta), price), rules.fees);
+    }
+    for (const [stockId, held] of current) {
+      if (held.microShares !== 0n && !targets.some((t) => t.stockId === stockId)) {
+        const price = priceOf.get(stockId) ?? 0n;
+        estimatedFees += feeFor(marketValue(absShares(held.microShares), price), rules.fees);
+      }
+    }
+    const next = preValueCents - estimatedFees;
+    if (next === sizingBaseCents || next <= 0n) break;
+    sizingBaseCents = next;
   }
+  const targetMicro = sizeTargets(sizingBaseCents);
   // A held stock absent from the targets is a full exit, not "leave it alone".
   for (const stockId of current.keys()) {
     if (!targetMicro.has(stockId)) targetMicro.set(stockId, 0n);

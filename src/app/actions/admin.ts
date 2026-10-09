@@ -2,11 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { dateKeyOf } from "@/lib/dates";
+import { addDays, dateKeyOf } from "@/lib/dates";
 import { requireAdmin } from "@/server/auth/guard";
 import { revokeAllSessions } from "@/server/auth/session";
 import { auditJson } from "@/server/audit";
 import { db } from "@/server/db";
+import { HOUSE_RULES } from "@/server/competition/house-rules";
+import { relaunchCompetition } from "@/server/competition/relaunch";
+import { backfillPrices } from "@/server/jobs/prices";
 import { formatCents } from "@/server/money";
 import { applyAdjustment } from "@/server/portfolio/adjust";
 import { liquidateStock, LiquidationError } from "@/server/portfolio/liquidate";
@@ -193,7 +196,7 @@ export async function createCompetitionAction(
     });
 
     await tx.competitionSettings.create({
-      data: { competitionId: competition.id, revision: 1 },
+      data: { competitionId: competition.id, revision: 1, ...HOUSE_RULES },
     });
 
     if (d.copyStocksFrom) {
@@ -764,4 +767,69 @@ export async function liquidateStockAction(
     if (error instanceof LiquidationError) return { ok: false, error: error.message };
     throw error;
   }
+}
+
+/**
+ * Relaunch: the CAC 40 + Bitcoin + S&P 500 ETF universe, every portfolio back
+ * to its starting capital in cash, and the house rules (1% fee, one rebalance
+ * a week). The work is in src/server/competition/relaunch.ts so it can be
+ * tested; this adds the authorisation, the typed confirmation, the audit entry
+ * and the first prices for the stocks it added.
+ */
+export async function relaunchCompetitionAction(
+  competitionId: string,
+  confirmation: string,
+): Promise<ActionResult> {
+  const admin = await requireAdmin();
+
+  if (confirmation.trim().toUpperCase() !== "RESET") {
+    return { ok: false, error: "Type RESET in the box to confirm. This cannot be undone." };
+  }
+
+  const competition = await db.competition.findUnique({
+    where: { id: competitionId },
+    select: { id: true, name: true, timezone: true },
+  });
+  if (!competition) return { ok: false, error: "That competition no longer exists." };
+
+  const result = await relaunchCompetition(db, { competitionId });
+
+  // Prices for the names that have never been priced, so the allocation page
+  // can offer them now rather than after tonight's job. A failure here does not
+  // undo the relaunch — the nightly job writes the same prices — but it is
+  // reported, because a stock with no price cannot be bought.
+  let pricing = "";
+  if (result.unpricedSymbols.length > 0) {
+    const today = dateKeyOf(new Date(), competition.timezone);
+    try {
+      await backfillPrices(
+        { db, runKey: `relaunch:${today}`, log: () => {} },
+        { from: addDays(today, -35), to: today, symbols: result.unpricedSymbols },
+      );
+      const still = await db.stock.count({
+        where: { symbol: { in: result.unpricedSymbols }, lastPriceCents: null },
+      });
+      pricing =
+        still === 0
+          ? " Prices were fetched for every new stock."
+          : ` ${still} stock${still === 1 ? " still has" : "s still have"} no price — tonight's price job will retry.`;
+    } catch (error: unknown) {
+      pricing = ` Prices could not be fetched yet (${error instanceof Error ? error.message : String(error)}). Tonight's price job will retry; until then the new stocks cannot be bought.`;
+    }
+  }
+
+  await audit(admin.id, "competition.relaunch", "Competition", competitionId, null, result);
+
+  revalidatePath("/admin", "layout");
+  revalidatePath("/dashboard");
+  revalidatePath("/portfolio");
+  revalidatePath("/leaderboard");
+  revalidatePath("/rules");
+  return {
+    ok: true,
+    message:
+      `${competition.name} relaunched: ${result.stocksTradable} tradable stocks (${result.stocksAdded} added, ${result.stocksRemoved} removed), ` +
+      `${result.portfoliosReset} portfolio${result.portfoliosReset === 1 ? "" : "s"} back to their starting cash, ` +
+      `and rules revision ${result.settingsRevision} with a 1% transaction cost and one rebalance per week.${pricing}`,
+  };
 }

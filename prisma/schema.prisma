@@ -74,6 +74,7 @@ model User {
   notifications Notification[]
   notifyPrefs   NotificationPreference[]
   auditLogs     AuditLog[]               @relation("AuditActor")
+  aiInvestor    AiInvestor?
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -965,6 +966,58 @@ model NotificationPreference {
 
   @@unique([userId, type, channel])
   @@index([userId])
+}
+
+// ── AI investor ───────────────────────────────────────────────────────────────
+
+// An autonomous participant that an administrator manages. It is a real User
+// with a real Participant and Portfolio, and it trades through exactly the same
+// window check, planner, fee and invariants as everyone else — this table only
+// holds what makes it an AI: its instructions, its model, and whether it runs.
+//
+// New tables rather than new columns on User: a column added to an existing
+// table breaks every query on it until the migration is applied, while a new
+// table breaks only the screens that read it.
+model AiInvestor {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  model     String
+  // The administrator's instructions: the strategy the AI should follow.
+  strategy  String
+  isEnabled Boolean   @default(true)
+  lastRunAt DateTime?
+
+  runs AiInvestorRun[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// One decision, kept whether it traded or not, so an administrator can read
+// what the AI was thinking and why a week passed without a trade.
+model AiInvestorRun {
+  id           String     @id @default(cuid())
+  aiInvestorId String
+  aiInvestor   AiInvestor @relation(fields: [aiInvestorId], references: [id], onDelete: Cascade)
+
+  asOfDate    String // "YYYY-MM-DD"
+  // AiRunStatus: TRADED | SKIPPED | REJECTED | FAILED
+  status      String
+  triggeredBy String // SCHEDULE | ADMIN
+  summary     String
+  rationale   String?
+  targetsJson String?
+  rebalanceRequestId String?
+
+  model        String?
+  inputTokens  Int?
+  outputTokens Int?
+
+  createdAt DateTime @default(now())
+
+  @@index([aiInvestorId, createdAt])
 }
 
 // ── Operations ────────────────────────────────────────────────────────────────

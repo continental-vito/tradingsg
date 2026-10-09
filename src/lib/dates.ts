@@ -138,6 +138,40 @@ export function periodKeyFor(
   }
 }
 
+/**
+ * The first day of the period after the one containing `key` — when a used
+ * "one change per period" allowance comes back. With WEEK and a Monday week
+ * start, that is next Monday.
+ */
+export function nextPeriodStart(
+  key: DateKey,
+  unit: "DAY" | "WEEK" | "MONTH",
+  weekStartsOn = 1,
+): DateKey {
+  switch (unit) {
+    case "DAY":
+      return addDays(key, 1);
+    case "WEEK":
+      return addDays(startOfWeek(key, weekStartsOn), 7);
+    case "MONTH": {
+      const [year, month] = key.split("-").map(Number) as [number, number];
+      return month === 12
+        ? `${year + 1}-01-01`
+        : `${year}-${String(month + 1).padStart(2, "0")}-01`;
+    }
+  }
+}
+
+/** "Monday 12 October", for telling someone when something next happens. */
+export function formatDateKeyLong(key: DateKey): string {
+  return dateKeyToUtc(key).toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    timeZone: "UTC",
+  });
+}
+
 /** "23 days 14 hours remaining", for the competition countdown. */
 export function formatRemaining(until: Date, now: Date = new Date()): string {
   const ms = until.getTime() - now.getTime();

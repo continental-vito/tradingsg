@@ -1,5 +1,5 @@
 import type { DateKey } from "@/lib/dates";
-import { dateKeyOf, periodKeyFor } from "@/lib/dates";
+import { dateKeyOf, formatDateKeyLong, nextPeriodStart, periodKeyFor } from "@/lib/dates";
 
 /**
  * Whether this participant may trade right now, and which period bucket the
@@ -104,10 +104,17 @@ export function evaluateTradingWindow(args: {
       const periodKey = periodKeyFor(today, rules.periodUnit, rules.weekStartsOn);
       if (changesThisPeriod >= rules.maxChangesPerPeriod) {
         const unit =
-          rules.periodUnit === "WEEK" ? "week" : rules.periodUnit === "MONTH" ? "month" : "day";
+          rules.periodUnit === "WEEK"
+            ? "weekly"
+            : rules.periodUnit === "MONTH"
+              ? "monthly"
+              : "daily";
+        const back = formatDateKeyLong(
+          nextPeriodStart(today, rules.periodUnit, rules.weekStartsOn),
+        );
         return deny(
           "PERIOD_LIMIT_REACHED",
-          `You have already made your ${rules.maxChangesPerPeriod === 1 ? "one allowed change" : `${rules.maxChangesPerPeriod} allowed changes`} this ${unit}. You can rebalance again next ${unit}.`,
+          `You have used your ${unit} rebalance ${rules.maxChangesPerPeriod === 1 ? "token" : `tokens (${rules.maxChangesPerPeriod})`}. Please wait until ${back} to rebalance again.`,
         );
       }
       return { allowed: true, periodKey };

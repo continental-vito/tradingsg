@@ -56,13 +56,20 @@ export async function deriveMockProfiles(db: PrismaClient): Promise<MockStockPro
 
 export async function backfillPrices(
   ctx: JobContext,
-  args: { from: DateKey; to: DateKey; anchorDate?: DateKey; profiles?: MockStockProfile[] },
+  args: {
+    from: DateKey;
+    to: DateKey;
+    anchorDate?: DateKey;
+    profiles?: MockStockProfile[];
+    /** Only these symbols — e.g. the stocks a relaunch just added. Default: all. */
+    symbols?: string[];
+  },
 ): Promise<JobResult> {
   const { db, log } = ctx;
   const anchorDate = args.anchorDate ?? args.from;
 
   const stocks = await db.stock.findMany({
-    where: { deletedAt: null },
+    where: { deletedAt: null, ...(args.symbols ? { symbol: { in: args.symbols } } : {}) },
     select: { id: true, symbol: true, providerSymbol: true },
   });
   if (stocks.length === 0) {

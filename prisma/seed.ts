@@ -16,6 +16,7 @@ import { backfillPrices } from "../src/server/jobs/prices";
 import { snapshotLeaderboard } from "../src/server/jobs/leaderboard";
 import { snapshotValuations } from "../src/server/jobs/valuations";
 import { commitRebalance } from "../src/server/portfolio/commit";
+import { HOUSE_RULES } from "../src/server/competition/house-rules";
 import { DEMO_STOCKS } from "./demo/stocks";
 import { DEMO_PASSWORD, DEMO_PEOPLE } from "./demo/people";
 import { DEMO_STRATEGIES } from "./demo/strategies";
@@ -143,15 +144,12 @@ async function main() {
     create: {
       competitionId: competition.id,
       revision: 1,
-      tradingMode: "ANYTIME",
-      periodUnit: "WEEK",
-      maxChangesPerPeriod: 1,
+      ...HOUSE_RULES, // 1% per order, one rebalance a week
       maxPositionPpm: 300_000, // 30%
       minPositionPpm: 0,
       allowCash: true,
       maxCashPpm: 1_000_000,
       allowFractionalShares: true,
-      feeModel: "NONE",
       priceMode: "LAST_CLOSE",
     },
   });

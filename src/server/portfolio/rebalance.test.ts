@@ -272,6 +272,38 @@ describe("planRebalance — rules, validated against the projected end state", (
     expect(result.errors[0]?.message).toMatch(/caps any single stock at 30%/);
   });
 
+  it("does not refuse a target at the cap because a fee shrank the portfolio", () => {
+    // Sized against the pre-trade value, 30% + 30% + 30% under a 1% fee lands
+    // at 30.2% of what is left and trips a 30% cap the participant respected.
+    // A weight is a share of the portfolio AFTER the rebalance.
+    const onePercent: FeeConfig = {
+      feeModel: "PERCENT",
+      feeFlatCents: 0n,
+      feeBps: 100,
+      feeMinCents: 0n,
+      feeMaxCents: null,
+    };
+    const plan = expectOk(
+      planRebalance({
+        state: emptyPortfolio,
+        targets: [
+          { stockId: "a", weightPpm: 300_000 },
+          { stockId: "b", weightPpm: 300_000 },
+          { stockId: "c", weightPpm: 300_000 },
+        ],
+        book: bookOf({ a: 21_450n, b: 38_900n, c: 11_280n }),
+        rules: rulesOf({ maxPositionPpm: 300_000, fees: onePercent }),
+        symbolOf,
+      }),
+    );
+    for (const holding of plan.projectedHoldings) {
+      expect(holding.weightPpm).toBeLessThanOrEqual(300_000);
+      expect(holding.weightPpm).toBeGreaterThanOrEqual(299_900);
+    }
+    for (const order of plan.orders) expect(order.feeCents).toBe((order.grossCents + 99n) / 100n);
+    expect(plan.postValueCents).toBeLessThanOrEqual(emptyPortfolio.cashCents);
+  });
+
   it("honours a per-stock cap override", () => {
     const result = planRebalance({
       state: emptyPortfolio,

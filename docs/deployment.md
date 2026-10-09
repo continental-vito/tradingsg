@@ -138,6 +138,7 @@ Vercel project → **Settings → Environment Variables**. Set each for
 | `EMAIL_PROVIDER`       | `resend`                               | Defaults to `console`, which writes files a serverless filesystem discards                                                                   |
 | `RESEND_API_KEY`       | from the Resend dashboard              | Required by `resend`                                                                                                                         |
 | `EMAIL_FROM`           | `TradingSG <no-reply@yourcompany.com>` | Defaults to an `example.com` address, which most providers reject                                                                            |
+| `ANTHROPIC_API_KEY`    | from console.anthropic.com             | The AI investor can be set up on `/admin/ai` but cannot decide anything; each run records that the key is missing                            |
 
 Generate the cron secret locally and paste it straight into the dashboard:
 
@@ -309,3 +310,30 @@ that drops or renames anything:
 ```bash
 # In the Neon dashboard: Branches → New branch → from the current head.
 ```
+
+---
+
+## Upgrading an existing deployment
+
+Vercel's build does not touch the database. When a release adds a migration
+(`prisma/migrations/<n>_…`), apply it from your checkout with the **direct**
+URL in `.env`, before or right after the deploy:
+
+```bash
+npx prisma migrate deploy
+```
+
+The AI investor release (`1_ai_investor`) only adds two tables, so the rest of
+the app keeps working if the deploy lands first — `/admin/ai` says the tables
+are missing until the migration has run.
+
+### Relaunching on the CAC 40
+
+`/admin/competition` → **Relaunch on the CAC 40** → type `RESET`. In one
+transaction it replaces the tradable list with the 40 CAC 40 members, Bitcoin
+(`BTC-EUR`) and the iShares Core S&P 500 UCITS ETF USD (Acc) (`SXR8.DE`, its
+EUR line); resets every portfolio to its starting capital in cash, deleting
+trades, valuations, leaderboard history and reports; and writes a rules
+revision with a 1% transaction cost and one rebalance per week (resetting on
+Monday). It then fetches about five weeks of prices for the new names. The list
+lives in `src/server/competition/universe.ts`.

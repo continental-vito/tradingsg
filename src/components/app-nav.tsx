@@ -11,6 +11,7 @@ export const ADMIN_LINKS = [
   { href: "/admin/competition", label: "Competition" },
   { href: "/admin/participants", label: "Participants" },
   { href: "/admin/stocks", label: "Stocks" },
+  { href: "/admin/ai", label: "AI investor" },
   { href: "/admin/leaderboard", label: "Leaderboard" },
   { href: "/admin/reports", label: "Reports" },
   { href: "/admin/backups", label: "Backups" },

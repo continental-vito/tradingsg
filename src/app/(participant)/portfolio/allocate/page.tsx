@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { joinCompetitionAction } from "@/app/actions/join";
 import { JoinPrompt } from "@/components/join-prompt";
 import { loadJoinable } from "@/server/dto/participation";
@@ -11,6 +12,8 @@ import { db } from "@/server/db";
 import { formatCents, toPpm } from "@/server/money";
 import { buildPriceBook } from "@/server/portfolio/prices";
 import { marketValue } from "@/server/money";
+import { loadTradingAccess } from "@/server/portfolio/access";
+import { TokenBanner } from "@/components/rebalance-token";
 
 export const metadata: Metadata = { title: "Build your portfolio" };
 export const dynamic = "force-dynamic";
@@ -49,6 +52,31 @@ export default async function AllocatePage() {
   }
 
   const asOfDate = dateKeyOf(new Date(), competition.timezone);
+
+  // Checked before anything is priced. A participant whose weekly token is
+  // spent gets the banner instead of an editor they could fill in and only
+  // then be refused — the commit re-checks regardless, so this is courtesy,
+  // not the boundary.
+  const access = await loadTradingAccess(db, portfolio.id);
+  if (access && !access.decision.allowed) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Manage your portfolio</h1>
+        </div>
+        <TokenBanner
+          tokens={access.tokens}
+          reason={access.decision.reason?.message ?? "Trading is closed right now."}
+        />
+        <Link
+          href="/portfolio"
+          className="inline-block rounded-lg border border-[var(--border)] px-4 py-2.5 text-sm font-medium hover:bg-[var(--surface-sunken)]"
+        >
+          Back to your portfolio
+        </Link>
+      </div>
+    );
+  }
 
   const universe = await db.competitionStock.findMany({
     where: { competitionId: competition.id, removedAt: null },
@@ -104,6 +132,8 @@ export default async function AllocatePage() {
           each stock. Nothing is saved until you preview the changes and confirm them.
         </p>
       </div>
+
+      {access?.tokens ? <TokenBanner tokens={access.tokens} /> : null}
 
       {stocks.length === 0 ? (
         <Alert>

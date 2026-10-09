@@ -1,15 +1,27 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { createCompetitionAction, updateCompetitionAction } from "@/app/actions/admin";
-import { CompetitionForm, CreateCompetitionForm } from "@/components/admin-controls";
+import {
+  createCompetitionAction,
+  relaunchCompetitionAction,
+  updateCompetitionAction,
+} from "@/app/actions/admin";
+import {
+  CompetitionForm,
+  CreateCompetitionForm,
+  RelaunchCompetitionForm,
+} from "@/components/admin-controls";
 import { Alert, Card, EmptyState } from "@/components/ui";
 import { formatRemaining } from "@/lib/dates";
 import { requireAdmin } from "@/server/auth/guard";
 import { db } from "@/server/db";
 import { formatCents } from "@/server/money";
+import { UNIVERSE } from "@/server/competition/universe";
 
 export const metadata: Metadata = { title: "Competition" };
 export const dynamic = "force-dynamic";
+// The relaunch fetches price history for every stock it adds, which is one
+// request per name and takes longer than a default serverless invocation.
+export const maxDuration = 300;
 
 export default async function AdminCompetitionPage() {
   await requireAdmin();
@@ -95,6 +107,23 @@ export default async function AdminCompetitionPage() {
               measured from — end this competition and create a new one instead.
             </Alert>
           ) : null}
+
+          <Card>
+            <h2 className="text-sm font-medium">Relaunch on the CAC 40</h2>
+            <p className="mt-1 mb-4 text-sm text-[var(--text-muted)]">
+              For when the trading so far was a trial. In one step: the tradable list becomes the{" "}
+              {UNIVERSE.length - 2} CAC 40 stocks plus Bitcoin and an S&amp;P 500 ETF, and every
+              other stock is removed; every portfolio goes back to{" "}
+              {formatCents(current.startingCapitalCents, current.currency)} in cash, with its
+              trades, valuations, leaderboard history and reports deleted; and the rules gain a 1%
+              transaction cost and one rebalance per week, reset every Monday. Participants keep
+              their accounts.
+            </p>
+            <RelaunchCompetitionForm
+              competitionId={current.id}
+              relaunch={relaunchCompetitionAction}
+            />
+          </Card>
         </>
       ) : (
         <EmptyState

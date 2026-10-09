@@ -26,7 +26,7 @@ done
 
 # 2. No secret has been committed. Every credential belongs in the environment,
 #    and a key in git history is a key that has to be rotated, not deleted.
-SECRET_NAMES='FINNHUB_API_KEY|RESEND_API_KEY|SMTP_PASSWORD|CRON_SECRET|DATABASE_URL'
+SECRET_NAMES='ANTHROPIC_API_KEY|FINNHUB_API_KEY|RESEND_API_KEY|SMTP_PASSWORD|CRON_SECRET|DATABASE_URL'
 if grep -rnE "(${SECRET_NAMES})[[:space:]]*[=:][[:space:]]*[\"'][A-Za-z0-9_/+-]{12,}[\"']" \
         --include='*.ts' --include='*.tsx' --include='*.mjs' --include='*.json' \
         --include='*.yml' --include='*.sh' \
@@ -108,6 +108,7 @@ check_seam yahoo      src/server/market/yahoo.ts   src/server/market/index.ts
 check_seam finnhub    src/server/market/finnhub.ts src/server/market/index.ts
 check_seam resend     src/server/email/resend.ts   src/server/email/index.ts
 check_seam nodemailer src/server/email/smtp.ts     src/server/email/index.ts
+check_seam anthropic  src/server/ai/anthropic.ts   src/server/ai/index.ts
 
 # 6. Every competition setting is read by something, and changeable by the
 #    administrator. A rule the engine enforces that nobody can adjust is a rule

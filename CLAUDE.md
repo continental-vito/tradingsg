@@ -83,7 +83,6 @@ candidate, so `npm install prisma@latest` silently splits the pair.
 | -------------------- | --------------------- | -------------------- |
 | `MarketDataProvider` | mock, Yahoo, Finnhub  | `src/server/market/` |
 | `EmailProvider`      | console, SMTP, Resend | `src/server/email/`  |
-| `AllocationAdvisor`  | Claude                | `src/server/ai/`     |
 
 Yahoo is the one to use for real prices: free, no key, and it returns the daily
 history the valuation engine needs. Finnhub's free tier has quotes only, which
@@ -204,14 +203,14 @@ Three things are deliberately split out of the code that calls them, because
 `requireAdmin()`, `notFound()` and `redirect()` only work inside a Next request
 and these are the parts that must be provable rather than merely reviewed:
 
-| Logic              | Lives in                                   | Called by                     |
-| ------------------ | ------------------------------------------ | ----------------------------- |
-| Ownership queries  | `src/server/auth/ownership.ts`             | the guards in `guard.ts`      |
-| Rebalance planning | `src/server/portfolio/rebalance.ts` (pure) | the preview and the commit    |
-| Manual adjustments | `src/server/portfolio/adjust.ts`           | `adjustPortfolioAction`       |
-| Trading access     | `src/server/portfolio/access.ts`           | allocate page, actions, AI    |
-| Relaunch / reset   | `src/server/competition/relaunch.ts`       | `relaunchCompetitionAction`   |
-| AI investor        | `src/server/ai/investor.ts`                | job, `runAiInvestorNowAction` |
+| Logic              | Lives in                                   | Called by                   |
+| ------------------ | ------------------------------------------ | --------------------------- |
+| Ownership queries  | `src/server/auth/ownership.ts`             | the guards in `guard.ts`    |
+| Rebalance planning | `src/server/portfolio/rebalance.ts` (pure) | the preview and the commit  |
+| Manual adjustments | `src/server/portfolio/adjust.ts`           | `adjustPortfolioAction`     |
+| Trading access     | `src/server/portfolio/access.ts`           | allocate page, actions, AI  |
+| Relaunch / reset   | `src/server/competition/relaunch.ts`       | `relaunchCompetitionAction` |
+| AI investor        | `src/server/ai/investor.ts`                | the `/admin/ai` actions     |
 
 If you add another operation that touches the ledger or access control, follow
 the same shape.

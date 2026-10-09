@@ -79,12 +79,6 @@ const schema = z.object({
   SMTP_PASSWORD: z.string().optional(),
   RESEND_API_KEY: z.string().optional(),
 
-  /**
-   * Key for the model behind the AI investor. Absent = the AI investor is
-   * listed on the admin page but cannot decide anything, and says so.
-   */
-  ANTHROPIC_API_KEY: z.string().optional(),
-
   /** Bearer token the /api/cron/* routes require. Absent = those routes 404. */
   CRON_SECRET: z.string().optional(),
 });

@@ -16,8 +16,6 @@ import { runHousekeeping } from "./housekeeping";
 import { pruneExports, storeExports } from "@/server/backup/export";
 import { buildWeeklyReport } from "@/server/reports/generate";
 import { runJob, type JobOutcome } from "./run";
-import { advisorConfigured, createAdvisor } from "@/server/ai";
-import { runAllAiInvestors } from "@/server/ai/investor";
 
 /**
  * Every scheduled job, in one place, with one implementation each.
@@ -390,35 +388,6 @@ export const JOBS: JobDefinition[] = [
         );
       }
       return outcomes;
-    },
-  },
-
-  {
-    name: "run-ai-investors",
-    description: "Let each enabled AI investor decide, under everyone's rules.",
-    cron: "0 7 * * *",
-    runKeyFor: (now, tz) => dateKeyOf(now, tz),
-    run: async (db, args) => {
-      const now = args.now ?? new Date();
-      return [
-        await runJob(
-          db,
-          {
-            jobName: "run-ai-investors",
-            runKey: dateKeyOf(now, "UTC"),
-            triggeredBy: args.triggeredBy,
-            force: args.force,
-          },
-          async (ctx) => {
-            // Without a key every investor records a FAILED run that says so
-            // on the admin page; the job itself succeeds, because a missing AI
-            // must not mark the morning's other jobs as broken.
-            const advisor = advisorConfigured() ? createAdvisor() : null;
-            const result = await runAllAiInvestors(ctx.db, advisor, { now, log: ctx.log });
-            return { itemsProcessed: result.processed, itemsFailed: result.failed };
-          },
-        ),
-      ];
     },
   },
 

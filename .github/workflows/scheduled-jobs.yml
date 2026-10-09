@@ -32,7 +32,6 @@ on:
           - run-notifications
           - export-backup
           - housekeeping
-          - run-ai-investors
 
 concurrency:
   # A run that overlaps its predecessor would have two processes writing the

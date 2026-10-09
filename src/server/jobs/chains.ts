@@ -27,8 +27,5 @@ export const CHAINS: Record<string, readonly string[]> = {
   ],
   // Every job here is keyed so a repeat is a no-op: build-weekly-report runs
   // once per ISO week however many mornings call it.
-  //
-  // The AI investors go last: a failure in one of them must not stop the
-  // report, and by morning the previous close they trade on is written.
-  morning: ["run-notifications", "housekeeping", "build-weekly-report", "run-ai-investors"],
+  morning: ["run-notifications", "housekeeping", "build-weekly-report"],
 };

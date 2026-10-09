@@ -1213,48 +1213,21 @@ const TEXTAREA =
   "w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm text-[var(--text)] " +
   "placeholder:text-[var(--text-muted)] focus:border-accent-500 focus:outline-2 focus:outline-offset-0 focus:outline-accent-500/40";
 
-function ModelInput({
-  value,
-  onChange,
-  models,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  models: readonly string[];
-}) {
-  return (
-    <>
-      <Input value={value} onChange={(e) => onChange(e.target.value)} list="ai-models" required />
-      <datalist id="ai-models">
-        {models.map((m) => (
-          <option key={m} value={m} />
-        ))}
-      </datalist>
-    </>
-  );
-}
-
 export function CreateAiInvestorForm({
   competitionId,
-  models,
-  defaultModel,
   defaultStrategy,
   create,
 }: {
   competitionId: string;
-  models: readonly string[];
-  defaultModel: string;
   defaultStrategy: string;
   create: (input: {
     competitionId: string;
     name: string;
-    model: string;
     strategy: string;
   }) => Promise<ActionResult>;
 }) {
   const { pending, result, run } = useAction();
   const [name, setName] = useState("Claude");
-  const [model, setModel] = useState(defaultModel);
   const [strategy, setStrategy] = useState(defaultStrategy);
 
   return (
@@ -1263,21 +1236,19 @@ export function CreateAiInvestorForm({
         className="space-y-3"
         onSubmit={(e) => {
           e.preventDefault();
-          run(() => create({ competitionId, name, model, strategy }));
+          run(() => create({ competitionId, name, strategy }));
         }}
       >
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Name" hint="Shown on the leaderboard with “(AI)” after it.">
-            <Input value={name} onChange={(e) => setName(e.target.value)} required maxLength={40} />
-          </Field>
-          <Field label="Model">
-            <ModelInput value={model} onChange={setModel} models={models} />
-          </Field>
-        </div>
-        <Field label="Strategy" hint="What the AI should aim for. It is sent with every decision.">
+        <Field label="Name" hint="Shown on the leaderboard with “(AI)” after it.">
+          <Input value={name} onChange={(e) => setName(e.target.value)} required maxLength={40} />
+        </Field>
+        <Field
+          label="Strategy"
+          hint="Your notes on how it invests. You can change them at any time."
+        >
           <textarea
             className={TEXTAREA}
-            rows={5}
+            rows={4}
             value={strategy}
             onChange={(e) => setStrategy(e.target.value)}
             required
@@ -1292,26 +1263,17 @@ export function CreateAiInvestorForm({
   );
 }
 
-export function AiInvestorControls({
-  investor,
-  models,
+export function AiStrategyForm({
+  aiInvestorId,
+  strategy: initial,
   save,
-  runNow,
 }: {
-  investor: { id: string; model: string; strategy: string; isEnabled: boolean };
-  models: readonly string[];
-  save: (input: {
-    aiInvestorId: string;
-    model: string;
-    strategy: string;
-    isEnabled: boolean;
-  }) => Promise<ActionResult>;
-  runNow: (aiInvestorId: string) => Promise<ActionResult>;
+  aiInvestorId: string;
+  strategy: string;
+  save: (input: { aiInvestorId: string; strategy: string }) => Promise<ActionResult>;
 }) {
   const { pending, result, run } = useAction();
-  const [model, setModel] = useState(investor.model);
-  const [strategy, setStrategy] = useState(investor.strategy);
-  const [isEnabled, setEnabled] = useState(investor.isEnabled);
+  const [strategy, setStrategy] = useState(initial);
 
   return (
     <div>
@@ -1319,42 +1281,21 @@ export function AiInvestorControls({
         className="space-y-3"
         onSubmit={(e) => {
           e.preventDefault();
-          run(() => save({ aiInvestorId: investor.id, model, strategy, isEnabled }));
+          run(() => save({ aiInvestorId, strategy }));
         }}
       >
         <Field label="Strategy">
           <textarea
             className={TEXTAREA}
-            rows={5}
+            rows={4}
             value={strategy}
             onChange={(e) => setStrategy(e.target.value)}
             required
           />
         </Field>
-        <div className="grid gap-3 sm:grid-cols-2 sm:items-end">
-          <Field label="Model">
-            <ModelInput value={model} onChange={setModel} models={models} />
-          </Field>
-          <Check
-            label="Trades on its own"
-            hint="Decides every Monday morning, when its weekly token returns."
-            checked={isEnabled}
-            onChange={setEnabled}
-          />
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="submit" disabled={pending}>
-            Save
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={pending}
-            onClick={() => run(() => runNow(investor.id))}
-          >
-            {pending ? "Working… (the model can take a minute)" : "Run now"}
-          </Button>
-        </div>
+        <Button type="submit" variant="secondary" disabled={pending || strategy.trim() === initial}>
+          {pending ? "Saving…" : "Save strategy"}
+        </Button>
       </form>
       <Feedback result={result} />
     </div>

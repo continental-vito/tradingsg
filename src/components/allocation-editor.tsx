@@ -45,6 +45,7 @@ export function AllocationEditor({
   maxGrossExposurePpm,
   preview,
   submit,
+  afterConfirmHref = "/dashboard",
 }: {
   portfolioId: string;
   stocks: AllocatableStock[];
@@ -57,6 +58,8 @@ export function AllocationEditor({
   maxShortPositionPpm: number;
   maxGrossExposurePpm: number;
   preview: (portfolioId: string, targets: unknown) => Promise<PlanPreview>;
+  /** Where to go once a change is saved. The admin's AI investor page stays put. */
+  afterConfirmHref?: string;
   submit: (
     portfolioId: string,
     targets: unknown,
@@ -159,7 +162,7 @@ export function AllocationEditor({
     startTransition(async () => {
       const result = await submit(portfolioId, targets(), idempotencyKey);
       if (result.ok) {
-        router.push("/dashboard");
+        router.push(afterConfirmHref);
         router.refresh();
       } else {
         setSubmitError(result.errors[0]?.message ?? "That change could not be saved. Try again.");

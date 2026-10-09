@@ -3,12 +3,16 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import type { ActionResult } from "@/app/actions/admin";
+import {
+  previewRebalanceAction,
+  submitRebalanceAction,
+  type PlanPreview,
+  type SubmitResult,
+} from "@/app/actions/portfolio";
 import { requireAdmin } from "@/server/auth/guard";
 import { auditJson } from "@/server/audit";
 import { db } from "@/server/db";
-import { advisorConfigured, createAdvisor } from "@/server/ai";
-import { createAiInvestor } from "@/server/ai/create";
-import { runAiInvestor } from "@/server/ai/investor";
+import { createAiInvestor, findAiPortfolio } from "@/server/ai/investor";
 
 /**
  * Managing the AI investor. Admin-only, audited, and thin: the work is in
@@ -28,20 +32,16 @@ async function audit(actorUserId: string, action: string, entityId: string, afte
   });
 }
 
-const modelSchema = z
+const strategySchema = z
   .string()
   .trim()
-  .regex(/^[a-z0-9][a-z0-9.-]{2,60}$/, "Use a model id such as claude-opus-5-5.");
+  .min(10, "Describe the strategy in a sentence or two.")
+  .max(4_000);
 
 const createSchema = z.object({
   competitionId: z.string().min(1),
   name: z.string().trim().min(1, "Give the AI investor a name.").max(40),
-  model: modelSchema,
-  strategy: z
-    .string()
-    .trim()
-    .min(10, "Describe the strategy in a sentence or two — it is what the AI follows.")
-    .max(4_000),
+  strategy: strategySchema,
 });
 
 export async function createAiInvestorAction(
@@ -56,72 +56,81 @@ export async function createAiInvestorAction(
   const result = await createAiInvestor(db, parsed.data);
   if (!result.ok) return { ok: false, error: result.error };
 
-  await audit(admin.id, "ai.create", result.aiInvestorId, {
-    name: parsed.data.name,
-    model: parsed.data.model,
-  });
+  await audit(admin.id, "ai.create", result.aiInvestorId, { name: parsed.data.name });
   revalidatePath("/admin/ai");
   revalidatePath("/leaderboard");
   return {
     ok: true,
-    message: `${parsed.data.name} joined with the starting capital. It decides every Monday morning, or now with "Run now".`,
+    message: `${parsed.data.name} joined with the starting capital. Set its allocation below.`,
   };
 }
 
-const updateSchema = z.object({
+const strategyUpdateSchema = z.object({
   aiInvestorId: z.string().min(1),
-  model: modelSchema,
-  strategy: z.string().trim().min(10, "Describe the strategy in a sentence or two.").max(4_000),
-  isEnabled: z.boolean(),
+  strategy: strategySchema,
 });
 
-export async function updateAiInvestorAction(
-  input: z.input<typeof updateSchema>,
+export async function updateAiStrategyAction(
+  input: z.input<typeof strategyUpdateSchema>,
 ): Promise<ActionResult> {
   const admin = await requireAdmin();
-  const parsed = updateSchema.safeParse(input);
+  const parsed = strategyUpdateSchema.safeParse(input);
   if (!parsed.success) {
-    return { ok: false, error: parsed.error.issues[0]?.message ?? "Those values are not valid." };
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "That strategy is not valid." };
   }
-  const { aiInvestorId, ...data } = parsed.data;
 
-  const existing = await db.aiInvestor.findUnique({ where: { id: aiInvestorId } });
+  const existing = await db.aiInvestor.findUnique({ where: { id: parsed.data.aiInvestorId } });
   if (!existing) return { ok: false, error: "That AI investor no longer exists." };
 
-  await db.aiInvestor.update({ where: { id: aiInvestorId }, data });
-  await audit(admin.id, "ai.update", aiInvestorId, data);
+  await db.aiInvestor.update({
+    where: { id: parsed.data.aiInvestorId },
+    data: { strategy: parsed.data.strategy },
+  });
+  await audit(admin.id, "ai.strategy", parsed.data.aiInvestorId, {
+    strategy: parsed.data.strategy,
+  });
 
   revalidatePath("/admin/ai");
-  return {
-    ok: true,
-    message: data.isEnabled
-      ? "Saved. The new instructions apply from its next decision."
-      : "Saved and paused. It will not trade until you enable it again.",
-  };
+  return { ok: true, message: "Strategy saved." };
 }
 
-export async function runAiInvestorNowAction(aiInvestorId: string): Promise<ActionResult> {
-  const admin = await requireAdmin();
-
-  const existing = await db.aiInvestor.findUnique({ where: { id: aiInvestorId } });
-  if (!existing) return { ok: false, error: "That AI investor no longer exists." };
-  if (!advisorConfigured()) {
+/**
+ * The participant preview and commit, limited to the AI investor's portfolio.
+ * Everything after the check is the same code a person's "Confirm" reaches,
+ * which is what holds the AI to the same token, caps and fee.
+ */
+export async function previewAiRebalanceAction(
+  portfolioId: string,
+  rawTargets: unknown,
+): Promise<PlanPreview> {
+  await requireAdmin();
+  if (!(await findAiPortfolio(db, portfolioId))) {
     return {
       ok: false,
-      error:
-        "ANTHROPIC_API_KEY is not set, so there is no model to ask. Add it to the environment and redeploy.",
+      errors: [
+        { code: "NOT_FOUND", message: "That AI investor no longer exists.", severity: "ERROR" },
+      ],
+      warnings: [],
     };
   }
+  return previewRebalanceAction(portfolioId, rawTargets);
+}
 
-  const outcome = await runAiInvestor(db, createAdvisor(), {
-    aiInvestorId,
-    triggeredBy: "ADMIN",
-  });
-  await audit(admin.id, "ai.run", aiInvestorId, outcome);
-
+export async function submitAiRebalanceAction(
+  portfolioId: string,
+  rawTargets: unknown,
+  idempotencyKey?: string,
+): Promise<SubmitResult> {
+  await requireAdmin();
+  if (!(await findAiPortfolio(db, portfolioId))) {
+    return {
+      ok: false,
+      errors: [
+        { code: "NOT_FOUND", message: "That AI investor no longer exists.", severity: "ERROR" },
+      ],
+    };
+  }
+  const result = await submitRebalanceAction(portfolioId, rawTargets, idempotencyKey);
   revalidatePath("/admin/ai");
-  revalidatePath("/leaderboard");
-  return outcome.status === "TRADED" || outcome.status === "SKIPPED"
-    ? { ok: true, message: outcome.summary }
-    : { ok: false, error: outcome.summary };
+  return result;
 }

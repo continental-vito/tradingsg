@@ -138,7 +138,6 @@ Vercel project → **Settings → Environment Variables**. Set each for
 | `EMAIL_PROVIDER`       | `resend`                               | Defaults to `console`, which writes files a serverless filesystem discards                                                                   |
 | `RESEND_API_KEY`       | from the Resend dashboard              | Required by `resend`                                                                                                                         |
 | `EMAIL_FROM`           | `TradingSG <no-reply@yourcompany.com>` | Defaults to an `example.com` address, which most providers reject                                                                            |
-| `ANTHROPIC_API_KEY`    | from console.anthropic.com             | The AI investor can be set up on `/admin/ai` but cannot decide anything; each run records that the key is missing                            |
 
 Generate the cron secret locally and paste it straight into the dashboard:
 
@@ -323,9 +322,17 @@ URL in `.env`, before or right after the deploy:
 npx prisma migrate deploy
 ```
 
-The AI investor release (`1_ai_investor`) only adds two tables, so the rest of
-the app keeps working if the deploy lands first — `/admin/ai` says the tables
-are missing until the migration has run.
+The AI investor migrations (`1_ai_investor`, `2_ai_investor_manual`) only touch
+the AI investor's own table, so the rest of the app keeps working if the deploy
+lands first — `/admin/ai` says the table is missing until the migrations have
+run.
+
+### The AI investor
+
+`/admin/ai` → **Create AI investor**. It joins the competition as a participant
+labelled "(AI)" and is traded by hand from that page, with the same allocation
+editor participants use — so the weekly token, the position caps and the 1% fee
+all apply. Nothing trades it automatically, and it needs no API key.
 
 ### Relaunching on the CAC 40
 

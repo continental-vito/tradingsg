@@ -4,14 +4,13 @@ import { joinCompetitionAction } from "@/app/actions/join";
 import { JoinPrompt } from "@/components/join-prompt";
 import { loadJoinable } from "@/server/dto/participation";
 import { previewRebalanceAction, submitRebalanceAction } from "@/app/actions/portfolio";
-import { AllocationEditor, type AllocatableStock } from "@/components/allocation-editor";
+import { AllocationEditor } from "@/components/allocation-editor";
 import { Alert } from "@/components/ui";
 import { dateKeyOf } from "@/lib/dates";
 import { requirePlayer } from "@/server/auth/guard";
 import { db } from "@/server/db";
-import { formatCents, toPpm } from "@/server/money";
-import { buildPriceBook } from "@/server/portfolio/prices";
-import { marketValue } from "@/server/money";
+import { formatCents } from "@/server/money";
+import { loadAllocatable } from "@/server/dto/allocation";
 import { loadTradingAccess } from "@/server/portfolio/access";
 import { TokenBanner } from "@/components/rebalance-token";
 
@@ -78,46 +77,13 @@ export default async function AllocatePage() {
     );
   }
 
-  const universe = await db.competitionStock.findMany({
-    where: { competitionId: competition.id, removedAt: null },
-    orderBy: { sortOrder: "asc" },
-    include: { stock: true },
-  });
-
-  const book = await buildPriceBook(
-    db,
-    universe.map((u) => u.stockId),
+  const { stocks, totalValueCents } = await loadAllocatable(db, {
+    competitionId: competition.id,
+    currency: competition.currency,
     asOfDate,
-  );
-
-  // Everything is valued at the same close the rebalance will execute at, so
-  // the estimates on this page and the orders on the next one agree.
-  let holdingsValue = 0n;
-  for (const holding of portfolio.holdings) {
-    const price = book.get(holding.stockId)?.priceCents ?? 0n;
-    holdingsValue += marketValue(holding.microShares, price);
-  }
-  const totalValueCents = portfolio.cashCents + holdingsValue;
-
-  const heldBy = new Map(portfolio.holdings.map((h) => [h.stockId, h]));
-
-  const stocks: AllocatableStock[] = universe
-    .filter((u) => u.isTradable && book.get(u.stockId))
-    .map((u) => {
-      const price = book.get(u.stockId)?.priceCents ?? 0n;
-      const holding = heldBy.get(u.stockId);
-      return {
-        id: u.stockId,
-        symbol: u.stock.symbol,
-        name: u.stock.name,
-        sector: u.stock.sector,
-        priceText: formatCents(price, competition.currency),
-        priceCents: price.toString(),
-        currentWeightPpm: holding
-          ? toPpm(marketValue(holding.microShares, price), totalValueCents)
-          : 0,
-      };
-    });
+    cashCents: portfolio.cashCents,
+    holdings: portfolio.holdings,
+  });
 
   const isFirstTime = portfolio.setupCompletedAt === null;
 

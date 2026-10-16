@@ -12,6 +12,9 @@ import { loadDashboard } from "@/server/dto/portfolio.dto";
 import { db } from "@/server/db";
 import { loadTradingAccess } from "@/server/portfolio/access";
 import { TokenBanner } from "@/components/rebalance-token";
+import { PreLaunchBanner } from "@/components/prelaunch-banner";
+import { isPreLaunch, queuedOrder } from "@/server/competition/prelaunch";
+import { dateKeyOf } from "@/lib/dates";
 
 export const metadata: Metadata = { title: "Portfolio" };
 export const dynamic = "force-dynamic";
@@ -28,7 +31,22 @@ export default async function PortfolioPage() {
   const access = data.participant.portfolioId
     ? await loadTradingAccess(db, data.participant.portfolioId)
     : null;
-  const canTrade = access?.decision.allowed ?? true;
+  const prelaunch = data.participant.portfolioId
+    ? await db.portfolio.findUnique({
+        where: { id: data.participant.portfolioId },
+        select: {
+          competition: {
+            select: { preLaunch: true, launchedAt: true, startDate: true, timezone: true },
+          },
+        },
+      })
+    : null;
+  const preLaunch = prelaunch ? isPreLaunch(prelaunch.competition) : false;
+  const queued =
+    preLaunch && data.participant.portfolioId
+      ? await queuedOrder(db, data.participant.portfolioId)
+      : null;
+  const canTrade = preLaunch || (access?.decision.allowed ?? true);
 
   // Shorts are liabilities and cannot be slices of a whole; they are listed
   // under the chart instead. Same split as the dashboard.
@@ -78,7 +96,13 @@ export default async function PortfolioPage() {
         </div>
       </div>
 
-      {access && !canTrade ? (
+      {preLaunch && prelaunch ? (
+        <PreLaunchBanner
+          launchDate={prelaunch.competition.startDate}
+          today={dateKeyOf(new Date(), prelaunch.competition.timezone)}
+          queuedPositions={queued ? queued.length : null}
+        />
+      ) : access && !canTrade ? (
         <TokenBanner tokens={access.tokens} reason={access.decision.reason?.message} />
       ) : access?.tokens ? (
         <TokenBanner tokens={access.tokens} />

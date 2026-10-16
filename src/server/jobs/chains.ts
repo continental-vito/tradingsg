@@ -21,6 +21,7 @@ export const CHAINS: Record<string, readonly string[]> = {
   nightly: [
     "refresh-prices",
     "close-prices",
+    "launch-competitions",
     "snapshot-valuations",
     "snapshot-leaderboard",
     "export-backup",

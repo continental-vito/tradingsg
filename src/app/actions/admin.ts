@@ -9,6 +9,7 @@ import { auditJson } from "@/server/audit";
 import { db } from "@/server/db";
 import { HOUSE_RULES } from "@/server/competition/house-rules";
 import { relaunchCompetition } from "@/server/competition/relaunch";
+import { enrolEveryone, isPreLaunch, launchCompetition } from "@/server/competition/prelaunch";
 import { backfillPrices } from "@/server/jobs/prices";
 import { formatCents } from "@/server/money";
 import { applyAdjustment } from "@/server/portfolio/adjust";
@@ -63,6 +64,7 @@ const competitionSchema = z.object({
   registrationOpen: z.boolean(),
   startDate: z.string().regex(DATE, "Use a YYYY-MM-DD date."),
   endDate: z.string().regex(DATE, "Use a YYYY-MM-DD date."),
+  preLaunch: z.boolean().optional(),
 });
 
 export async function updateCompetitionAction(
@@ -98,9 +100,31 @@ export async function updateCompetitionAction(
     }
   }
 
+  if (d.preLaunch !== undefined && d.preLaunch !== before.preLaunch) {
+    if (before.launchedAt) {
+      return { ok: false, error: "This competition has already launched; pre-launch is over." };
+    }
+    if (!d.preLaunch) {
+      const queued = await db.rebalanceRequest.count({
+        where: {
+          status: "PENDING",
+          idempotencyKey: { startsWith: "prelaunch:" },
+          portfolio: { competitionId: d.competitionId },
+        },
+      });
+      if (queued > 0) {
+        return {
+          ok: false,
+          error: `${queued} participant${queued === 1 ? " has" : "s have"} a queued order. Launch the competition to execute them instead of switching pre-launch off.`,
+        };
+      }
+    }
+  }
+
   const updated = await db.competition.update({
     where: { id: d.competitionId },
     data: {
+      ...(d.preLaunch !== undefined && !before.launchedAt ? { preLaunch: d.preLaunch } : {}),
       name: d.name,
       description: d.description ?? null,
       status: d.status,
@@ -153,6 +177,7 @@ const createSchema = z.object({
   startingCapitalEuros: z.coerce.number().int().min(1).max(100_000_000),
   timezone: z.string().trim().min(1).default("Europe/Berlin"),
   copyStocksFrom: z.string().optional(),
+  preLaunch: z.boolean().default(false),
 });
 
 /**
@@ -188,6 +213,7 @@ export async function createCompetitionAction(
         registrationOpen: false,
         timezone: d.timezone,
         startingCapitalCents: BigInt(d.startingCapitalEuros) * 100n,
+        preLaunch: d.preLaunch,
         startDate: d.startDate,
         endDate: d.endDate,
         startsAt: new Date(`${d.startDate}T08:00:00Z`),
@@ -224,7 +250,9 @@ export async function createCompetitionAction(
   revalidatePath("/admin/competition");
   return {
     ok: true,
-    message: `${created.name} created as a draft. Add stocks, then open registration when you are ready.`,
+    message: created.preLaunch
+      ? `${created.name} created as a draft with a pre-launch until ${created.startDate}. Add stocks, open registration, and enrol everyone from the pre-launch card.`
+      : `${created.name} created as a draft. Add stocks, then open registration when you are ready.`,
   };
 }
 
@@ -831,5 +859,55 @@ export async function relaunchCompetitionAction(
       `${competition.name} relaunched: ${result.stocksTradable} tradable stocks (${result.stocksAdded} added, ${result.stocksRemoved} removed), ` +
       `${result.portfoliosReset} portfolio${result.portfoliosReset === 1 ? "" : "s"} back to their starting cash, ` +
       `and rules revision ${result.settingsRevision} with a 1% transaction cost and one rebalance per week.${pricing}`,
+  };
+}
+
+/**
+ * Puts every existing participant account into a pre-launch competition, so
+ * the new competition is the one they see and can build a portfolio in.
+ */
+export async function enrolEveryoneAction(competitionId: string): Promise<ActionResult> {
+  const admin = await requireAdmin();
+  const competition = await db.competition.findUnique({ where: { id: competitionId } });
+  if (!competition) return { ok: false, error: "That competition no longer exists." };
+
+  const { enrolled } = await enrolEveryone(db, competitionId);
+  await audit(admin.id, "competition.enrol_everyone", "Competition", competitionId, null, {
+    enrolled,
+  });
+  revalidatePath("/admin/competition");
+  return {
+    ok: true,
+    message:
+      enrolled === 0
+        ? "Everyone is already enrolled."
+        : `${enrolled} participant${enrolled === 1 ? "" : "s"} enrolled with ${formatCents(competition.startingCapitalCents, competition.currency)} each. They see ${competition.name} the next time they open the app.`,
+  };
+}
+
+/** Executes every queued order now rather than waiting for the start date. */
+export async function launchNowAction(competitionId: string): Promise<ActionResult> {
+  const admin = await requireAdmin();
+  const competition = await db.competition.findUnique({ where: { id: competitionId } });
+  if (!competition) return { ok: false, error: "That competition no longer exists." };
+  if (!isPreLaunch(competition))
+    return { ok: false, error: "This competition is not in pre-launch." };
+
+  const result = await launchCompetition(db, {
+    competitionId,
+    asOfDate: dateKeyOf(new Date(), competition.timezone),
+  });
+  await audit(admin.id, "competition.launch", "Competition", competitionId, null, result);
+
+  revalidatePath("/admin", "layout");
+  revalidatePath("/dashboard");
+  revalidatePath("/portfolio");
+  return {
+    ok: true,
+    message:
+      `${competition.name} launched: ${result.executed} portfolio${result.executed === 1 ? "" : "s"} invested at the latest close.` +
+      (result.rejected.length > 0
+        ? ` ${result.rejected.length} could not be executed and stay in cash: ${result.rejected.map((r) => `${r.displayName} (${r.reason})`).join("; ")}`
+        : ""),
   };
 }

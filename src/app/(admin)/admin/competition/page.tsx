@@ -2,16 +2,20 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import {
   createCompetitionAction,
+  enrolEveryoneAction,
+  launchNowAction,
   relaunchCompetitionAction,
   updateCompetitionAction,
 } from "@/app/actions/admin";
 import {
   CompetitionForm,
   CreateCompetitionForm,
+  PreLaunchControls,
   RelaunchCompetitionForm,
 } from "@/components/admin-controls";
 import { Alert, Card, EmptyState } from "@/components/ui";
-import { formatRemaining } from "@/lib/dates";
+import { dateKeyOf, daysBetween, formatDateKeyLong, formatRemaining } from "@/lib/dates";
+import { isPreLaunch } from "@/server/competition/prelaunch";
 import { requireAdmin } from "@/server/auth/guard";
 import { db } from "@/server/db";
 import { formatCents } from "@/server/money";
@@ -35,6 +39,39 @@ export default async function AdminCompetitionPage() {
   });
 
   const current = competitions[0];
+  const preLaunchState =
+    current && isPreLaunch(current)
+      ? {
+          daysLeft: daysBetween(dateKeyOf(new Date(), current.timezone), current.startDate),
+          queued: await db.rebalanceRequest.count({
+            where: {
+              status: "PENDING",
+              idempotencyKey: { startsWith: "prelaunch:" },
+              portfolio: { competitionId: current.id },
+            },
+          }),
+          notEnrolled: await db.user.count({
+            where: {
+              role: "PARTICIPANT",
+              isDisabled: false,
+              deletedAt: null,
+              participants: { none: { competitionId: current.id } },
+            },
+          }),
+        }
+      : null;
+  // The outcome of the launch, kept on the page: the pre-launch card that
+  // triggered it is gone once the competition has launched.
+  const launchOutcome = current?.launchedAt
+    ? await db.rebalanceRequest.findMany({
+        where: { idempotencyKey: { startsWith: `launch:${current.id}:` } },
+        select: {
+          status: true,
+          errorsJson: true,
+          portfolio: { select: { participant: { select: { displayName: true } } } },
+        },
+      })
+    : null;
   const hasValuations = current
     ? (await db.portfolioValuation.count({ where: { competitionId: current.id } })) > 0
     : false;
@@ -95,10 +132,56 @@ export default async function AdminCompetitionPage() {
                 startDate: current.startDate,
                 endDate: current.endDate,
                 hasValuations,
+                preLaunch: current.preLaunch,
+                launched: current.launchedAt !== null,
               }}
               save={updateCompetitionAction}
             />
           </Card>
+
+          {current.launchedAt && launchOutcome ? (
+            <Alert tone="success">
+              Launched on {formatDateKeyLong(dateKeyOf(current.launchedAt, current.timezone))}:{" "}
+              {launchOutcome.filter((o) => o.status === "COMMITTED").length} queued portfolio
+              {launchOutcome.filter((o) => o.status === "COMMITTED").length === 1 ? "" : "s"}{" "}
+              executed together.
+              {launchOutcome.some((o) => o.status === "REJECTED")
+                ? ` Not executed, left in cash and notified: ${launchOutcome
+                    .filter((o) => o.status === "REJECTED")
+                    .map((o) => o.portfolio.participant.displayName)
+                    .join(", ")}.`
+                : ""}
+            </Alert>
+          ) : null}
+
+          {preLaunchState ? (
+            <Card>
+              <h2 className="text-sm font-medium">Pre-launch</h2>
+              <p className="mt-1 mb-4 text-sm text-[var(--text-muted)]">
+                Launches on {formatDateKeyLong(current.startDate)}
+                {preLaunchState.daysLeft > 0
+                  ? `, in ${preLaunchState.daysLeft} day${preLaunchState.daysLeft === 1 ? "" : "s"}`
+                  : ""}
+                , at that day&rsquo;s close: every queued order executes then, together.{" "}
+                <strong>
+                  {preLaunchState.queued} of {current._count.participants} participant
+                  {current._count.participants === 1 ? "" : "s"}
+                </strong>{" "}
+                have queued a portfolio. Anyone who has not is left in cash and can trade normally
+                after launch.
+                {current.status === "DRAFT" || !current.registrationOpen
+                  ? " Participants cannot see it yet: set the status to Registration and accept new participants."
+                  : ""}
+              </p>
+              <PreLaunchControls
+                competitionId={current.id}
+                notEnrolled={preLaunchState.notEnrolled}
+                queued={preLaunchState.queued}
+                enrol={enrolEveryoneAction}
+                launch={launchNowAction}
+              />
+            </Card>
+          ) : null}
 
           {hasValuations ? (
             <Alert tone="info">

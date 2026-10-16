@@ -732,6 +732,8 @@ export function CompetitionForm({
     startDate: string;
     endDate: string;
     hasValuations: boolean;
+    preLaunch: boolean;
+    launched: boolean;
   };
   save: (input: {
     competitionId: string;
@@ -741,6 +743,7 @@ export function CompetitionForm({
     registrationOpen: boolean;
     startDate: string;
     endDate: string;
+    preLaunch?: boolean;
   }) => Promise<ActionResult>;
 }) {
   const { pending, result, run } = useAction();
@@ -764,6 +767,7 @@ export function CompetitionForm({
               registrationOpen: form.registrationOpen,
               startDate: form.startDate,
               endDate: form.endDate,
+              ...(competition.launched ? {} : { preLaunch: form.preLaunch }),
             }),
           );
         }}
@@ -838,6 +842,15 @@ export function CompetitionForm({
           Closing it mid-competition stops late entries without locking anybody out.
         </p>
 
+        {competition.launched ? null : (
+          <Check
+            label="Pre-launch until the start date"
+            hint="Participants build their portfolios beforehand; nothing trades until launch, when every order executes together at the start date's close."
+            checked={form.preLaunch}
+            onChange={(v) => set("preLaunch", v)}
+          />
+        )}
+
         <Button type="submit" disabled={pending}>
           {pending ? "Saving…" : "Save competition"}
         </Button>
@@ -861,9 +874,11 @@ export function CreateCompetitionForm({
     startingCapitalEuros: number;
     timezone: string;
     copyStocksFrom?: string;
+    preLaunch: boolean;
   }) => Promise<ActionResult>;
 }) {
   const { pending, result, run } = useAction();
+  const [preLaunch, setPreLaunch] = useState(true);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -893,6 +908,7 @@ export function CreateCompetitionForm({
               startingCapitalEuros: capital,
               timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Berlin",
               ...(copyStocks && copyStocksFrom ? { copyStocksFrom: copyStocksFrom.id } : {}),
+              preLaunch,
             });
             if (r.ok) {
               setName("");
@@ -940,8 +956,11 @@ export function CreateCompetitionForm({
           <Field label="Starting capital (€ per person)">
             <Input
               type="number"
+              // step={1}: with min 1 and step 1000 the browser only accepted
+              // 1, 1001, 2001… and refused the 100,000 default, so the form
+              // could never be submitted unchanged.
               min={1}
-              step={1000}
+              step={1}
               value={capital}
               onChange={(e) => setCapital(Number(e.target.value))}
               required
@@ -960,6 +979,26 @@ export function CreateCompetitionForm({
             Copy the {copyStocksFrom.stockCount} stocks from {copyStocksFrom.name}
           </label>
         ) : null}
+
+        <Check
+          label="Pre-launch until the start date"
+          hint={
+            "Participants build their portfolios before it starts; nothing trades until launch, when every order executes together at the start date's close." +
+            (() => {
+              if (!startDate) return "";
+              const days = Math.round(
+                (new Date(`${startDate}T00:00:00Z`).getTime() -
+                  new Date(`${new Date().toLocaleDateString("en-CA")}T00:00:00Z`).getTime()) /
+                  86_400_000,
+              );
+              return days > 0
+                ? ` That gives everyone ${days} day${days === 1 ? "" : "s"} from today.`
+                : "";
+            })()
+          }
+          checked={preLaunch}
+          onChange={setPreLaunch}
+        />
 
         <p className="text-xs text-[var(--text-muted)]">
           Created as a draft with default rules and nobody able to join. Add or adjust stocks, set
@@ -1601,6 +1640,65 @@ export function SurveyAdjustmentForm({
               : `Apply to ${shown.count} participant${shown.count === 1 ? "" : "s"}`}
           </Button>
         </div>
+      ) : null}
+      <Feedback result={result} />
+    </div>
+  );
+}
+
+export function PreLaunchControls({
+  competitionId,
+  notEnrolled,
+  queued,
+  enrol,
+  launch,
+}: {
+  competitionId: string;
+  notEnrolled: number;
+  queued: number;
+  enrol: (competitionId: string) => Promise<ActionResult>;
+  launch: (competitionId: string) => Promise<ActionResult>;
+}) {
+  const { pending, result, run } = useAction();
+  const [confirming, setConfirming] = useState(false);
+
+  return (
+    <div>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="secondary"
+          disabled={pending || notEnrolled === 0}
+          onClick={() => run(() => enrol(competitionId))}
+        >
+          {notEnrolled === 0
+            ? "Everyone is enrolled"
+            : `Enrol the ${notEnrolled} account${notEnrolled === 1 ? "" : "s"} not in it yet`}
+        </Button>
+        {confirming ? (
+          <>
+            <Button
+              variant="danger"
+              disabled={pending}
+              onClick={() => run(() => launch(competitionId))}
+            >
+              {pending ? "Launching…" : `Execute ${queued} order${queued === 1 ? "" : "s"} now`}
+            </Button>
+            <Button variant="ghost" disabled={pending} onClick={() => setConfirming(false)}>
+              Cancel
+            </Button>
+          </>
+        ) : (
+          <Button variant="secondary" disabled={pending} onClick={() => setConfirming(true)}>
+            Launch now
+          </Button>
+        )}
+      </div>
+      {confirming ? (
+        <p className="mt-2 text-xs text-[var(--text-muted)]">
+          Launching now executes every queued order at the latest close and moves the start date to
+          today. It cannot be undone. Without it, the launch happens on its own at the start
+          date&rsquo;s close.
+        </p>
       ) : null}
       <Feedback result={result} />
     </div>

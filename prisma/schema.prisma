@@ -146,6 +146,13 @@ model Competition {
   finalizedAt DateTime?
   isDemo      Boolean   @default(false)
 
+  // Pre-launch: until the start date nobody trades. Participants queue the
+  // allocation they want, and every queued order executes together, at the
+  // same close, when the competition launches — so nobody gets a head start or
+  // a better price for having signed up first. launchedAt marks it done.
+  preLaunch  Boolean   @default(false)
+  launchedAt DateTime?
+
   settings       CompetitionSettings[]
   tradingWindows TradingWindow[]
   stocks         CompetitionStock[]

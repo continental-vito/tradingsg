@@ -5,7 +5,10 @@ import { PerformanceLine } from "@/components/charts/performance-line";
 import { CASH_COLOR, topNWithOther } from "@/components/charts/palette";
 import { Alert, Card, EmptyState } from "@/components/ui";
 import { Stat, toneClass } from "@/components/stat";
-import { formatRemaining } from "@/lib/dates";
+import { dateKeyOf, formatRemaining } from "@/lib/dates";
+import { PreLaunchBanner } from "@/components/prelaunch-banner";
+import { db } from "@/server/db";
+import { isPreLaunch, queuedOrder } from "@/server/competition/prelaunch";
 import { requirePlayer } from "@/server/auth/guard";
 import { loadDashboard } from "@/server/dto/portfolio.dto";
 
@@ -33,6 +36,38 @@ export default async function DashboardPage() {
   const { headline, holdings, competition } = data;
 
   if (!data.participant.hasInvested) {
+    const portfolioId = data.participant.portfolioId;
+    const comp = portfolioId
+      ? (
+          await db.portfolio.findUnique({
+            where: { id: portfolioId },
+            select: {
+              competition: {
+                select: { preLaunch: true, launchedAt: true, startDate: true, timezone: true },
+              },
+            },
+          })
+        )?.competition
+      : null;
+    if (comp && portfolioId && isPreLaunch(comp)) {
+      const queued = await queuedOrder(db, portfolioId);
+      return (
+        <div className="space-y-6">
+          <Header data={data} />
+          <PreLaunchBanner
+            launchDate={comp.startDate}
+            today={dateKeyOf(new Date(), comp.timezone)}
+            queuedPositions={queued ? queued.length : null}
+          />
+          <Link
+            href="/portfolio/allocate"
+            className="inline-block rounded-lg bg-accent-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-700"
+          >
+            {queued ? "Change my queued portfolio" : "Build my portfolio"}
+          </Link>
+        </div>
+      );
+    }
     return (
       <div className="space-y-6">
         <Header data={data} />

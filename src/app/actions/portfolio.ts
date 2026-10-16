@@ -12,6 +12,7 @@ import { commitRebalance, loadTradingRules } from "@/server/portfolio/commit";
 import { buildPriceBook } from "@/server/portfolio/prices";
 import { planRebalance, type ValidationIssue } from "@/server/portfolio/rebalance";
 import { loadTradingAccess } from "@/server/portfolio/access";
+import { isPreLaunch, queuePreLaunchOrder } from "@/server/competition/prelaunch";
 import type { PortfolioState } from "@/server/portfolio/value";
 
 /**
@@ -133,7 +134,10 @@ async function buildPlan(portfolioId: string, rawTargets: unknown) {
       },
     };
   }
-  const window = access.decision;
+  // Before a pre-launch competition starts nothing trades, so the weekly token
+  // and the trading window do not apply: the order is queued, not executed.
+  const preLaunch = isPreLaunch(portfolio.competition);
+  const window = preLaunch ? { allowed: true, periodKey: null } : access.decision;
 
   const { rules } = await loadTradingRules(db, portfolio.competitionId);
 
@@ -178,6 +182,8 @@ async function buildPlan(portfolioId: string, rawTargets: unknown) {
     asOfDate,
     currency: portfolio.competition.currency,
     targets: parsed.data,
+    preLaunch,
+    launchDate: portfolio.competition.startDate,
   };
 }
 
@@ -201,11 +207,21 @@ export async function previewRebalanceAction(
   }
 
   const plan = planned.plan;
+  const warnings = built.preLaunch
+    ? [
+        {
+          code: "PRE_LAUNCH",
+          message: `Nothing is bought yet. This allocation is queued and executes on ${built.launchDate}, at that day's close, together with everyone else's — so the share counts and fees below are estimates at today's prices. You can change it until then.`,
+          severity: "WARNING" as const,
+        },
+        ...plan.warnings,
+      ]
+    : plan.warnings;
   return {
     ok: window.allowed,
     errors:
       window.allowed || !window.reason ? [] : [{ ...window.reason, severity: "ERROR" as const }],
-    warnings: plan.warnings,
+    warnings,
     summary: {
       valueBefore: money(plan.preValueCents, currency).text,
       valueAfter: money(plan.postValueCents, currency).text,
@@ -255,6 +271,24 @@ export async function submitRebalanceAction(
     return { ok: false, errors: [{ ...window.reason, severity: "ERROR" }] };
   }
   if (!planned.ok) return { ok: false, errors: planned.errors };
+
+  if (built.preLaunch) {
+    const queued = await queuePreLaunchOrder(db, { portfolioId, targets, asOfDate });
+    if (!queued.ok) return { ok: false, errors: queued.errors };
+    await db.auditLog.create({
+      data: {
+        actorUserId: context.user.id,
+        actorRole: context.user.role,
+        action: "portfolio.prelaunch.queue",
+        entityType: "Portfolio",
+        entityId: portfolioId,
+        afterJson: JSON.stringify(targets),
+      },
+    });
+    revalidatePath("/dashboard");
+    revalidatePath("/portfolio");
+    return { ok: true, errors: [] };
+  }
 
   const result = await commitRebalance(db, {
     portfolioId,

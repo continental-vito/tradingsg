@@ -26,6 +26,7 @@ on:
           - morning
           - refresh-prices
           - close-prices
+          - launch-competitions
           - snapshot-valuations
           - snapshot-leaderboard
           - build-weekly-report

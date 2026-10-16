@@ -8,6 +8,8 @@ import {
 import { AiStrategyForm, CreateAiInvestorForm } from "@/components/admin-controls";
 import { AllocationEditor } from "@/components/allocation-editor";
 import { TokenBanner } from "@/components/rebalance-token";
+import { PreLaunchBanner } from "@/components/prelaunch-banner";
+import { isPreLaunch, queuedOrder } from "@/server/competition/prelaunch";
 import { Alert, Card, EmptyState } from "@/components/ui";
 import { dateKeyOf } from "@/lib/dates";
 import { requireAdmin } from "@/server/auth/guard";
@@ -109,7 +111,13 @@ export default async function AdminAiPage() {
             cashCents: portfolio.cashCents,
             holdings: portfolio.holdings,
           });
-          const canTrade = access?.decision.allowed ?? false;
+          const preLaunch = isPreLaunch(comp);
+          const queued = preLaunch ? await queuedOrder(db, portfolio.id) : null;
+          const queuedWeight = new Map((queued ?? []).map((t) => [t.stockId, t.weightPpm]));
+          const editorStocks = queued
+            ? stocks.map((s) => ({ ...s, currentWeightPpm: queuedWeight.get(s.id) ?? 0 }))
+            : stocks;
+          const canTrade = preLaunch || (access?.decision.allowed ?? false);
 
           return (
             <div key={investor.id} className="space-y-4">
@@ -129,7 +137,13 @@ export default async function AdminAiPage() {
                 />
               </Card>
 
-              {access && !canTrade ? (
+              {preLaunch ? (
+                <PreLaunchBanner
+                  launchDate={comp.startDate}
+                  today={dateKeyOf(new Date(), comp.timezone)}
+                  queuedPositions={queued ? queued.length : null}
+                />
+              ) : access && !canTrade ? (
                 <TokenBanner tokens={access.tokens} reason={access.decision.reason?.message} />
               ) : access?.tokens ? (
                 <TokenBanner tokens={access.tokens} />
@@ -138,7 +152,7 @@ export default async function AdminAiPage() {
               {canTrade && stocks.length > 0 ? (
                 <AllocationEditor
                   portfolioId={portfolio.id}
-                  stocks={stocks}
+                  stocks={editorStocks}
                   currency={comp.currency}
                   totalValueCents={totalValueCents.toString()}
                   totalValueText={formatCents(totalValueCents, comp.currency)}

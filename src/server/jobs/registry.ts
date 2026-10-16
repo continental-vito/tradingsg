@@ -16,6 +16,7 @@ import { runHousekeeping } from "./housekeeping";
 import { pruneExports, storeExports } from "@/server/backup/export";
 import { buildWeeklyReport } from "@/server/reports/generate";
 import { runJob, type JobOutcome } from "./run";
+import { dueLaunches, launchCompetition } from "@/server/competition/prelaunch";
 
 /**
  * Every scheduled job, in one place, with one implementation each.
@@ -50,8 +51,36 @@ async function activeCompetitions(db: PrismaClient, slug?: string) {
       deletedAt: null,
       ...(slug ? { slug } : { status: { in: ["RUNNING", "REGISTRATION", "PAUSED"] } }),
     },
-    select: { id: true, slug: true, timezone: true, startDate: true, endDate: true },
+    select: {
+      id: true,
+      slug: true,
+      timezone: true,
+      startDate: true,
+      endDate: true,
+      preLaunch: true,
+      launchedAt: true,
+    },
   });
+}
+
+/**
+ * Nothing to value, rank or report yet. Before this guard "today" was clamped
+ * UP to the start date, so a competition created a week ahead had its first
+ * day valued — all cash, on prices that did not exist yet — days before it
+ * began, and the job then skipped that date for good. A pre-launch competition
+ * also waits for its launch, which is what invests anyone.
+ */
+function notStarted(
+  competition: {
+    startDate: DateKey;
+    timezone: string;
+    preLaunch: boolean;
+    launchedAt: Date | null;
+  },
+  now: Date,
+): boolean {
+  if (competition.preLaunch && competition.launchedAt === null) return true;
+  return dateKeyOf(now, competition.timezone) < competition.startDate;
 }
 
 /** Never value or rank a date after the competition ended. */
@@ -129,6 +158,48 @@ export const JOBS: JobDefinition[] = [
   },
 
   {
+    name: "launch-competitions",
+    description: "Execute every queued pre-launch order on a competition's start date.",
+    cron: "40 22 * * *",
+    runKeyFor: (now, tz) => dateKeyOf(now, tz),
+    run: async (db, args) => {
+      const now = args.now ?? new Date();
+      const outcomes: JobOutcome[] = [];
+      for (const competition of await dueLaunches(db, now)) {
+        const today = dateKeyOf(now, competition.timezone);
+        outcomes.push(
+          await runJob(
+            db,
+            {
+              jobName: "launch-competitions",
+              runKey: `${competition.slug}:${today}`,
+              triggeredBy: args.triggeredBy,
+              force: args.force,
+            },
+            async (ctx) => {
+              // After close-prices, so the orders execute at today's close.
+              const result = await launchCompetition(ctx.db, {
+                competitionId: competition.id,
+                asOfDate: today,
+                now,
+              });
+              ctx.log(
+                `${competition.slug}: ${result.executed} executed, ${result.rejected.length} rejected`,
+              );
+              return {
+                itemsProcessed: result.executed,
+                itemsFailed: result.rejected.length,
+                detail: { rejected: result.rejected },
+              };
+            },
+          ),
+        );
+      }
+      return outcomes;
+    },
+  },
+
+  {
     name: "snapshot-valuations",
     description: "Value every portfolio at the close, backfilling any missed days.",
     cron: "0 23 * * *",
@@ -137,6 +208,7 @@ export const JOBS: JobDefinition[] = [
       const now = args.now ?? new Date();
       const outcomes: JobOutcome[] = [];
       for (const competition of await activeCompetitions(db, args.competitionSlug)) {
+        if (notStarted(competition, now)) continue;
         const today = clampToCompetition(
           dateKeyOf(now, competition.timezone),
           competition.startDate,
@@ -178,6 +250,7 @@ export const JOBS: JobDefinition[] = [
       const now = args.now ?? new Date();
       const outcomes: JobOutcome[] = [];
       for (const competition of await activeCompetitions(db, args.competitionSlug)) {
+        if (notStarted(competition, now)) continue;
         const today = clampToCompetition(
           dateKeyOf(now, competition.timezone),
           competition.startDate,
@@ -287,6 +360,7 @@ export const JOBS: JobDefinition[] = [
       const now = args.now ?? new Date();
       const outcomes: JobOutcome[] = [];
       for (const competition of await activeCompetitions(db, args.competitionSlug)) {
+        if (notStarted(competition, now)) continue;
         const today = clampToCompetition(
           dateKeyOf(now, competition.timezone),
           competition.startDate,

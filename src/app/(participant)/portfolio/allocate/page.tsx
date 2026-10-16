@@ -13,6 +13,8 @@ import { formatCents } from "@/server/money";
 import { loadAllocatable } from "@/server/dto/allocation";
 import { loadTradingAccess } from "@/server/portfolio/access";
 import { TokenBanner } from "@/components/rebalance-token";
+import { PreLaunchBanner } from "@/components/prelaunch-banner";
+import { isPreLaunch, queuedOrder } from "@/server/competition/prelaunch";
 
 export const metadata: Metadata = { title: "Build your portfolio" };
 export const dynamic = "force-dynamic";
@@ -57,7 +59,9 @@ export default async function AllocatePage() {
   // then be refused — the commit re-checks regardless, so this is courtesy,
   // not the boundary.
   const access = await loadTradingAccess(db, portfolio.id);
-  if (access && !access.decision.allowed) {
+  const preLaunch = isPreLaunch(competition);
+  const queued = preLaunch ? await queuedOrder(db, portfolio.id) : null;
+  if (!preLaunch && access && !access.decision.allowed) {
     return (
       <div className="space-y-6">
         <div>
@@ -84,6 +88,11 @@ export default async function AllocatePage() {
     cashCents: portfolio.cashCents,
     holdings: portfolio.holdings,
   });
+  // A queued order is what the editor opens on, so changing it starts from it.
+  const queuedWeight = new Map((queued ?? []).map((t) => [t.stockId, t.weightPpm]));
+  const editorStocks = queued
+    ? stocks.map((s) => ({ ...s, currentWeightPpm: queuedWeight.get(s.id) ?? 0 }))
+    : stocks;
 
   const isFirstTime = portfolio.setupCompletedAt === null;
 
@@ -99,7 +108,15 @@ export default async function AllocatePage() {
         </p>
       </div>
 
-      {access?.tokens ? <TokenBanner tokens={access.tokens} /> : null}
+      {preLaunch ? (
+        <PreLaunchBanner
+          launchDate={competition.startDate}
+          today={asOfDate}
+          queuedPositions={queued ? queued.length : null}
+        />
+      ) : access?.tokens ? (
+        <TokenBanner tokens={access.tokens} />
+      ) : null}
 
       {stocks.length === 0 ? (
         <Alert>
@@ -109,7 +126,7 @@ export default async function AllocatePage() {
       ) : (
         <AllocationEditor
           portfolioId={portfolio.id}
-          stocks={stocks}
+          stocks={editorStocks}
           currency={competition.currency}
           totalValueCents={totalValueCents.toString()}
           totalValueText={formatCents(totalValueCents, competition.currency)}

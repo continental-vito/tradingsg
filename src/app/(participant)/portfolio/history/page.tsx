@@ -19,7 +19,9 @@ const TYPE_LABEL: Record<string, string> = {
   FEE: "Fee",
   ADJUSTMENT_CREDIT: "Adjustment",
   ADJUSTMENT_DEBIT: "Adjustment",
-  LIQUIDATION_SELL: "Liquidation",
+  LIQUIDATION_SELL: "Forced sale",
+  BONUS: "Bonus",
+  MALUS: "Malus",
 };
 
 export default async function HistoryPage() {
@@ -113,6 +115,9 @@ export default async function HistoryPage() {
                             <div className="font-medium">{t.stock.symbol}</div>
                             <div className="text-xs text-[var(--text-muted)]">{t.stock.name}</div>
                           </>
+                        ) : (t.type === "BONUS" || t.type === "MALUS") && t.note ? (
+                          // Says which answer earned it, so nobody has to ask.
+                          <span className="text-xs text-[var(--text-muted)]">{t.note}</span>
                         ) : (
                           <span className="text-[var(--text-muted)]">—</span>
                         )}

@@ -11,6 +11,7 @@ export const dynamic = "force-dynamic";
 
 const WHAT: Record<string, string> = {
   participants: "Who is playing, what they started with, and where their cash is.",
+  answers: "Every participant's answers to the login questions, and when they gave them.",
   holdings: "What each participant holds right now.",
   transactions: "The full append-only ledger — the authoritative record.",
   prices: "Every close used to value anything.",

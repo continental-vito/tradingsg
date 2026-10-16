@@ -93,6 +93,43 @@ export function purchaseCost(micro: MicroShares, priceCents: Cents): Cents {
 }
 
 /**
+ * How many micro-shares must be sold at `priceCents` for the proceeds to cover
+ * `amountCents`. CEIL on the share count, so `marketValue` of the result — which
+ * floors — is never short of the amount: a forced sale raises at least what it
+ * was for, and the extra fraction of a cent stays in the holder's cash.
+ */
+export function sharesToRaise(amountCents: Cents, priceCents: Cents): MicroShares {
+  if (priceCents <= 0n) throw new MoneyError("sharesToRaise: price must be positive", "ZERO_PRICE");
+  if (amountCents <= 0n) return 0n;
+  return (amountCents * MICRO + priceCents - 1n) / priceCents;
+}
+
+/**
+ * `part / whole` of `amountCents`, rounded UP — for splitting an amount that
+ * must be raised across several positions, so the shares always add up to at
+ * least the whole and never leave it a cent short.
+ */
+export function proRataCeil(amountCents: Cents, partCents: Cents, wholeCents: Cents): Cents {
+  if (wholeCents <= 0n) throw new MoneyError("proRataCeil: divide by zero", "DIVIDE_BY_ZERO");
+  if (amountCents <= 0n || partCents <= 0n) return 0n;
+  return (amountCents * partCents + wholeCents - 1n) / wholeCents;
+}
+
+/**
+ * A bonus or malus of `ratePpm` on `baseCents`, signed like the rate.
+ *
+ * Under the rounding rule a bonus pays and so FLOORS, and a malus costs and so
+ * CEILS — either way the participant is at most a cent worse off than the exact
+ * figure and never a cent better.
+ */
+export function rateAdjustment(baseCents: Cents, ratePpm: number): Cents {
+  if (baseCents < 0n) throw new MoneyError("rateAdjustment: negative base", "NEGATIVE_BASE");
+  const rate = BigInt(ratePpm);
+  if (rate >= 0n) return (baseCents * rate) / PPM;
+  return -((baseCents * -rate + PPM - 1n) / PPM);
+}
+
+/**
  * How many micro-shares `amountCents` buys at `priceCents`. FLOOR, so the
  * remainder stays in cash. Optionally floored to whole shares.
  */

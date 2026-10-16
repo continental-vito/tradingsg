@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { PrismaClient } from "@/generated/prisma/client";
 import type { DateKey } from "@/lib/dates";
+import { ANSWER_EXPORT_HEADERS, answerExportRows } from "@/server/survey/questions";
 import { toCsv } from "./csv";
 
 /**
@@ -12,6 +13,7 @@ import { toCsv } from "./csv";
  *   holdings      what each of them holds right now
  *   transactions  the full append-only ledger — the authoritative record
  *   prices        every close used to value anything
+ *   answers       every participant's answers to the login questions
  *
  * `transactions` and `prices` alone are sufficient: holdings and valuations are
  * both derivable from them. The other two are included because a recovery you
@@ -23,13 +25,14 @@ import { toCsv } from "./csv";
  * useful for reconstruction rather than merely for reading.
  */
 
-export type ExportKind = "participants" | "holdings" | "transactions" | "prices";
+export type ExportKind = "participants" | "holdings" | "transactions" | "prices" | "answers";
 
 export const EXPORT_KINDS: readonly ExportKind[] = [
   "participants",
   "holdings",
   "transactions",
   "prices",
+  "answers",
 ];
 
 export interface BuiltExport {
@@ -251,6 +254,13 @@ export async function buildExports(
         "revision",
       ],
       priceRows,
+    ),
+    finish(
+      "answers",
+      asOfDate,
+      slug,
+      ANSWER_EXPORT_HEADERS,
+      await answerExportRows(db, competitionId),
     ),
   ];
 }

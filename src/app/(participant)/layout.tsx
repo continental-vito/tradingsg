@@ -1,5 +1,8 @@
 import { ADMIN_LINKS, AppNav } from "@/components/app-nav";
+import { redirect } from "next/navigation";
 import { requireUser } from "@/server/auth/guard";
+import { db } from "@/server/db";
+import { pendingQuestions } from "@/server/survey/questions";
 
 /**
  * The layout guard is a convenience, not the security boundary: a server action
@@ -7,6 +10,12 @@ import { requireUser } from "@/server/auth/guard";
  */
 export default async function ParticipantLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser();
+  // Unanswered login questions come before anything else. Asked here rather
+  // than in the login action so a question added mid-competition is put to
+  // people who are already signed in, at their next page load.
+  if (user.role !== "ADMIN" && (await pendingQuestions(db, user.id)).length > 0) {
+    redirect("/questions");
+  }
   return (
     <div className="flex min-h-dvh flex-col">
       <AppNav

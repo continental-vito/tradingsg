@@ -75,6 +75,7 @@ model User {
   notifyPrefs   NotificationPreference[]
   auditLogs     AuditLog[]               @relation("AuditActor")
   aiInvestor    AiInvestor?
+  surveyAnswers SurveyAnswer[]
 
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
@@ -990,6 +991,82 @@ model AiInvestor {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ── Login questions ───────────────────────────────────────────────────────────
+
+// A yes/no question participants answer when they sign in. Answers are kept per
+// user, across competitions, and feed the statistics and the bonus/malus on
+// /admin/questions.
+//
+// The wording cannot be edited once anyone has answered: a statistic over
+// answers to two different questions is not a statistic.
+model SurveyQuestion {
+  id       String @id @default(cuid())
+  prompt   String
+  yesLabel String @default("Yes")
+  noLabel  String @default("No")
+
+  // Asked at sign-in while active. Deactivating stops asking; answers stay.
+  isActive    Boolean @default(true)
+  // Answers are final unless the administrator opens them for change.
+  allowChange Boolean @default(false)
+  sortOrder   Int     @default(0)
+
+  answers     SurveyAnswer[]
+  adjustments SurveyAdjustment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+model SurveyAnswer {
+  id         String         @id @default(cuid())
+  questionId String
+  question   SurveyQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  answer     Boolean // true = the question's yesLabel
+  answeredAt DateTime @default(now())
+  // How many times it has been changed, when the question allows it.
+  changeCount Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([questionId, userId])
+  @@index([userId])
+}
+
+// One application of a bonus or malus to everyone who gave an answer. The money
+// itself is in the Transaction ledger (BONUS / MALUS rows); this row is the
+// record of the decision, and its idempotency key is what stops a double-click
+// applying it twice.
+model SurveyAdjustment {
+  id             String         @id @default(cuid())
+  idempotencyKey String         @unique
+  questionId     String
+  question       SurveyQuestion @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  competitionId  String
+
+  answer Boolean
+  // Signed: +20_000 is a 2% bonus, -15_000 a 1.5% malus.
+  ratePpm Int
+  // SurveyAdjustmentBase: STARTING_CAPITAL | CURRENT_VALUE
+  base    String
+  note    String?
+
+  participantCount Int
+  totalCents       BigInt
+  asOfDate         String // "YYYY-MM-DD"
+  appliedByUserId  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([competitionId, createdAt])
 }
 
 // ── Operations ────────────────────────────────────────────────────────────────

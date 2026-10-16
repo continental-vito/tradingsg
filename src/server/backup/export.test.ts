@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { createTestDb, seedCompetition, seedParticipant } from "@/test/db";
 import { commitRebalance } from "@/server/portfolio/commit";
-import { buildExports, storeExports, pruneExports } from "./export";
+import { EXPORT_KINDS, buildExports, storeExports, pruneExports } from "./export";
 import { csvCell, toCsv } from "./csv";
 
 let db: PrismaClient;
@@ -108,9 +108,10 @@ describe("csv writing", () => {
 });
 
 describe("buildExports", () => {
-  it("produces the four files a rebuild needs", async () => {
+  it("produces the four files a rebuild needs, plus the login answers", async () => {
     const files = await buildExports(db, competitionId, "2026-07-27");
     expect(files.map((f) => f.kind).sort()).toEqual([
+      "answers",
       "holdings",
       "participants",
       "prices",
@@ -191,9 +192,12 @@ describe("storeExports", () => {
     await storeExports(db, competitionId, "2026-05-01", "CRON");
     const before = await db.dataExport.count({ where: { competitionId } });
     const pruned = await pruneExports(db, competitionId, "2026-06-01");
-    expect(pruned).toBe(4);
-    expect(await db.dataExport.count({ where: { competitionId } })).toBe(before - 4);
+    const perDay = EXPORT_KINDS.length;
+    expect(pruned).toBe(perDay);
+    expect(await db.dataExport.count({ where: { competitionId } })).toBe(before - perDay);
     // The recent one is untouched.
-    expect(await db.dataExport.count({ where: { competitionId, asOfDate: "2026-07-27" } })).toBe(4);
+    expect(await db.dataExport.count({ where: { competitionId, asOfDate: "2026-07-27" } })).toBe(
+      perDay,
+    );
   });
 });

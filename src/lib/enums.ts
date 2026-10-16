@@ -66,6 +66,10 @@ export const TransactionType = makeEnum([
   "ADJUSTMENT_CREDIT",
   "ADJUSTMENT_DEBIT",
   "LIQUIDATION_SELL",
+  // A bonus or malus from /admin/questions. Performance, not an external flow:
+  // it is meant to move the return and the ranking.
+  "BONUS",
+  "MALUS",
 ] as const);
 export type TransactionType = z.infer<typeof TransactionType.schema>;
 
@@ -152,3 +156,11 @@ export type NotificationChannel = z.infer<typeof NotificationChannel.schema>;
 
 export const JobStatus = makeEnum(["RUNNING", "SUCCEEDED", "FAILED", "SKIPPED"] as const);
 export type JobStatus = z.infer<typeof JobStatus.schema>;
+
+/**
+ * What a bonus or malus percentage is a percentage of. STARTING_CAPITAL moves
+ * everybody's return by exactly the same number of points; CURRENT_VALUE scales
+ * with how each portfolio is doing.
+ */
+export const SurveyAdjustmentBase = makeEnum(["STARTING_CAPITAL", "CURRENT_VALUE"] as const);
+export type SurveyAdjustmentBase = z.infer<typeof SurveyAdjustmentBase.schema>;

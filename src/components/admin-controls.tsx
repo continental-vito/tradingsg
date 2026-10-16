@@ -1301,3 +1301,308 @@ export function AiStrategyForm({
     </div>
   );
 }
+
+export function CreateQuestionForm({
+  create,
+}: {
+  create: (input: { prompt: string; yesLabel: string; noLabel: string }) => Promise<ActionResult>;
+}) {
+  const { pending, result, run } = useAction();
+  const [prompt, setPrompt] = useState("");
+  const [yesLabel, setYes] = useState("Yes");
+  const [noLabel, setNo] = useState("No");
+
+  return (
+    <div>
+      <form
+        className="space-y-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          run(async () => {
+            const r = await create({ prompt, yesLabel, noLabel });
+            if (r.ok) setPrompt("");
+            return r;
+          });
+        }}
+      >
+        <Field label="Question">
+          <Input
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="Will the CAC 40 finish the competition higher than it started?"
+            required
+            maxLength={300}
+          />
+        </Field>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="First answer">
+            <Input
+              value={yesLabel}
+              onChange={(e) => setYes(e.target.value)}
+              required
+              maxLength={40}
+            />
+          </Field>
+          <Field label="Second answer">
+            <Input
+              value={noLabel}
+              onChange={(e) => setNo(e.target.value)}
+              required
+              maxLength={40}
+            />
+          </Field>
+        </div>
+        <Button type="submit" disabled={pending || prompt.trim().length < 5}>
+          {pending ? "Adding…" : "Add question"}
+        </Button>
+      </form>
+      <Feedback result={result} />
+    </div>
+  );
+}
+
+export function QuestionEditor({
+  question,
+  save,
+}: {
+  question: {
+    id: string;
+    prompt: string;
+    yesLabel: string;
+    noLabel: string;
+    isActive: boolean;
+    allowChange: boolean;
+    answerCount: number;
+  };
+  save: (input: {
+    questionId: string;
+    prompt: string;
+    yesLabel: string;
+    noLabel: string;
+    isActive: boolean;
+    allowChange: boolean;
+  }) => Promise<ActionResult>;
+}) {
+  const { pending, result, run } = useAction();
+  const [isActive, setActive] = useState(question.isActive);
+  const [allowChange, setAllowChange] = useState(question.allowChange);
+  const [prompt, setPrompt] = useState(question.prompt);
+  const [yesLabel, setYes] = useState(question.yesLabel);
+  const [noLabel, setNo] = useState(question.noLabel);
+  const locked = question.answerCount > 0;
+
+  return (
+    <div>
+      <form
+        className="space-y-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          run(() =>
+            save({ questionId: question.id, prompt, yesLabel, noLabel, isActive, allowChange }),
+          );
+        }}
+      >
+        {locked ? null : (
+          <div className="space-y-3">
+            <Field label="Question">
+              <Input value={prompt} onChange={(e) => setPrompt(e.target.value)} required />
+            </Field>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="First answer">
+                <Input value={yesLabel} onChange={(e) => setYes(e.target.value)} required />
+              </Field>
+              <Field label="Second answer">
+                <Input value={noLabel} onChange={(e) => setNo(e.target.value)} required />
+              </Field>
+            </div>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-x-6 gap-y-2">
+          <Check
+            label="Ask at sign-in"
+            hint="Off: nobody new is asked; existing answers are kept."
+            checked={isActive}
+            onChange={setActive}
+          />
+          <Check
+            label="Participants may change their answer"
+            hint="Off by default: answers are final. On: changeable from their account page."
+            checked={allowChange}
+            onChange={setAllowChange}
+          />
+        </div>
+        <Button type="submit" variant="secondary" disabled={pending}>
+          {pending ? "Saving…" : "Save"}
+        </Button>
+      </form>
+      <Feedback result={result} />
+    </div>
+  );
+}
+
+interface AdjustmentPreviewView {
+  ok: boolean;
+  error?: string;
+  count?: number;
+  total?: string;
+  rows?: { name: string; amount: string }[];
+}
+
+const SELECT =
+  "w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm text-[var(--text)]";
+
+/**
+ * Preview first, then apply. The preview lists every person and amount, and
+ * applying is disabled until there is a preview matching the form — so what
+ * the administrator confirms is what gets booked.
+ */
+export function SurveyAdjustmentForm({
+  competitionId,
+  questions,
+  preview,
+  apply,
+}: {
+  competitionId: string;
+  questions: { id: string; prompt: string; yesLabel: string; noLabel: string }[];
+  preview: (input: unknown) => Promise<AdjustmentPreviewView>;
+  apply: (input: unknown, idempotencyKey: string) => Promise<ActionResult>;
+}) {
+  const { pending, result, run } = useAction();
+  const [questionId, setQuestionId] = useState(questions[0]?.id ?? "");
+  const [answer, setAnswer] = useState(true);
+  const [ratePercent, setRate] = useState("");
+  const [base, setBase] = useState<"STARTING_CAPITAL" | "CURRENT_VALUE">("STARTING_CAPITAL");
+  const [note, setNote] = useState("");
+  const [shown, setShown] = useState<AdjustmentPreviewView | null>(null);
+  const [key, setKey] = useState(() => crypto.randomUUID());
+  const [checking, startCheck] = useTransition();
+
+  const question = questions.find((q) => q.id === questionId);
+  const input = { competitionId, questionId, answer, ratePercent, base, note: note || undefined };
+  const rate = Number(ratePercent);
+  // Anything edited after the preview invalidates it.
+  const touch =
+    <T,>(set: (v: T) => void) =>
+    (v: T) => {
+      set(v);
+      setShown(null);
+    };
+
+  return (
+    <div>
+      <form
+        className="space-y-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          startCheck(async () => setShown(await preview(input)));
+        }}
+      >
+        <Field label="Question">
+          <select
+            className={SELECT}
+            value={questionId}
+            onChange={(e) => touch(setQuestionId)(e.target.value)}
+          >
+            {questions.map((q) => (
+              <option key={q.id} value={q.id}>
+                {q.prompt}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field label="Everyone who answered">
+            <select
+              className={SELECT}
+              value={answer ? "yes" : "no"}
+              onChange={(e) => touch(setAnswer)(e.target.value === "yes")}
+            >
+              <option value="yes">{question?.yesLabel ?? "Yes"}</option>
+              <option value="no">{question?.noLabel ?? "No"}</option>
+            </select>
+          </Field>
+          <Field label="Gets (%)" hint="2 for a 2% bonus, -1.5 for a 1.5% malus.">
+            <Input
+              type="number"
+              step="0.01"
+              min={-100}
+              max={100}
+              value={ratePercent}
+              onChange={(e) => touch(setRate)(e.target.value)}
+              required
+            />
+          </Field>
+          <Field label="Of">
+            <select
+              className={SELECT}
+              value={base}
+              onChange={(e) =>
+                touch(setBase)(e.target.value as "STARTING_CAPITAL" | "CURRENT_VALUE")
+              }
+            >
+              <option value="STARTING_CAPITAL">their starting capital</option>
+              <option value="CURRENT_VALUE">their current portfolio value</option>
+            </select>
+          </Field>
+        </div>
+        <Field label="Note (optional)" hint="Shown in each participant's transaction history.">
+          <Input value={note} onChange={(e) => touch(setNote)(e.target.value)} maxLength={300} />
+        </Field>
+        <p className="text-xs text-[var(--text-muted)]">
+          “Starting capital” moves everyone&rsquo;s return by exactly the same number of points. It
+          counts as performance, so it changes the ranking. A malus larger than someone&rsquo;s cash
+          is covered by selling their positions pro rata at the last close, without a fee.
+        </p>
+        <Button
+          type="submit"
+          variant="secondary"
+          disabled={checking || !questionId || !rate || Math.abs(rate) > 100}
+        >
+          {checking ? "Checking…" : "Preview who is affected"}
+        </Button>
+      </form>
+
+      {shown && !shown.ok ? (
+        <div className="mt-3">
+          <Alert>{shown.error}</Alert>
+        </div>
+      ) : null}
+      {shown?.ok ? (
+        <div className="mt-4 rounded-lg border border-[var(--border)] p-4">
+          <p className="text-sm font-medium">
+            {rate > 0 ? "Bonus" : "Malus"} for {shown.count} participant
+            {shown.count === 1 ? "" : "s"}, {shown.total} in total.
+          </p>
+          <ul className="tnum mt-2 max-h-56 space-y-1 overflow-y-auto text-sm text-[var(--text-muted)]">
+            {shown.rows?.map((r) => (
+              <li key={r.name} className="flex justify-between gap-4">
+                <span>{r.name}</span>
+                <span>{r.amount}</span>
+              </li>
+            ))}
+          </ul>
+          <Button
+            className="mt-3"
+            variant={rate > 0 ? "primary" : "danger"}
+            disabled={pending}
+            onClick={() =>
+              run(async () => {
+                const r = await apply(input, key);
+                if (r.ok) {
+                  setShown(null);
+                  setKey(crypto.randomUUID());
+                }
+                return r;
+              })
+            }
+          >
+            {pending
+              ? "Applying…"
+              : `Apply to ${shown.count} participant${shown.count === 1 ? "" : "s"}`}
+          </Button>
+        </div>
+      ) : null}
+      <Feedback result={result} />
+    </div>
+  );
+}

@@ -18,6 +18,7 @@ import { UNIVERSE, type UniverseEntry } from "./universe";
  *   - initialCapitalCents, on the participant and the portfolio. Every return
  *     is measured against it, and nothing ever rewrites it.
  *   - Users, participants, sessions, the audit trail and the backups.
+ *   - Answers to the login questions, which belong to people, not portfolios.
  *   - Price history, which is a fact about the market, not about anyone's play.
  *
  * What it removes, for this competition only:
@@ -104,6 +105,9 @@ export async function relaunchCompetition(
 
       // ── Portfolios ────────────────────────────────────────────────────────
       await tx.weeklyReport.deleteMany({ where: { competitionId: competition.id } });
+      // The bonus/malus rows they record are among the ledger rows deleted
+      // below. The answers themselves belong to people, not portfolios, and stay.
+      await tx.surveyAdjustment.deleteMany({ where: { competitionId: competition.id } });
       await tx.leaderboardSnapshot.deleteMany({ where: { competitionId: competition.id } });
       await tx.portfolioValuation.deleteMany({ where: { competitionId: competition.id } });
       await tx.jobRun.deleteMany({

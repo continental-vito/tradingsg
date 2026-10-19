@@ -225,6 +225,7 @@ export interface SettingsFormValues {
   tradingMode: string;
   periodUnit: string;
   maxChangesPerPeriod: number;
+  periodOpenDays: number;
   lockAfterDate: string;
   allowTradingBeforeStart: boolean;
   maxPositionPct: number;
@@ -385,6 +386,16 @@ export function CompetitionSettingsForm({
                 min: 1,
                 max: 50,
                 disabled: f.tradingMode !== "ONCE_PER_PERIOD",
+              })}
+            </Field>
+            <Field
+              label="Open only for the first … days of each period"
+              hint="7 with “Per month”: rebalancing is open from the 1st to the 7th, and an unused token expires until next month. 0 = any day."
+            >
+              {num("periodOpenDays", {
+                min: 0,
+                max: 31,
+                disabled: f.tradingMode !== "ONCE_PER_PERIOD" || f.periodUnit === "DAY",
               })}
             </Field>
             <Field label="Lock portfolios from" hint="Leave empty for no lock date.">

@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import { dateKeyOf, nextPeriodStart, periodKeyFor, type DateKey } from "@/lib/dates";
-import { evaluateTradingWindow, type WindowDecision } from "./window";
+import { evaluateTradingWindow, openWindow, type WindowDecision } from "./window";
 
 /**
  * Whether a portfolio may be rebalanced right now, and how many of its
@@ -26,6 +26,13 @@ export interface RebalanceTokens {
   periodUnit: "DAY" | "WEEK" | "MONTH";
   /** When a used token comes back: next Monday, for a weekly allowance. */
   refillsOn: DateKey;
+  /**
+   * The last day a token can be used this period, when changes are limited to
+   * the first days of it (the 7th, for a monthly window of 7). Null otherwise.
+   */
+  usableUntil: DateKey | null;
+  /** The window has closed with the token unused: it is gone until refillsOn. */
+  expired: boolean;
 }
 
 export interface TradingAccess {
@@ -85,6 +92,7 @@ export async function loadTradingAccess(
       tradingMode: settings.tradingMode,
       periodUnit,
       maxChangesPerPeriod: settings.maxChangesPerPeriod,
+      periodOpenDays: settings.periodOpenDays,
       lockAfterDate: settings.lockAfterDate,
       allowTradingBeforeStart: settings.allowTradingBeforeStart,
       timezone: competition.timezone,
@@ -100,6 +108,13 @@ export async function loadTradingAccess(
     now,
   });
 
+  const window = openWindow(today, {
+    periodUnit,
+    periodOpenDays: settings.periodOpenDays,
+    weekStartsOn: competition.weekStartsOn,
+  });
+  const expired = window !== null && today > window.closesOn;
+
   return {
     decision,
     today,
@@ -107,9 +122,11 @@ export async function loadTradingAccess(
       ? {
           allowance: settings.maxChangesPerPeriod,
           used,
-          remaining: Math.max(0, settings.maxChangesPerPeriod - used),
+          remaining: expired ? 0 : Math.max(0, settings.maxChangesPerPeriod - used),
           periodUnit,
           refillsOn: nextPeriodStart(today, periodUnit, competition.weekStartsOn),
+          usableUntil: window?.closesOn ?? null,
+          expired,
         }
       : null,
   };

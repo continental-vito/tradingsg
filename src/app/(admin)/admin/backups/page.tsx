@@ -57,15 +57,15 @@ export default async function BackupsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Backups</h1>
           <p className="mt-1 text-sm text-[var(--text-muted)]">
-            {byDate.size} day{byDate.size === 1 ? "" : "s"} kept · written nightly at 23:45 and
-            pruned after 90 days
+            {byDate.size} day{byDate.size === 1 ? "" : "s"} kept · written every night · daily for
+            the current week, then one per week (the Friday)
           </p>
         </div>
         <GenerateBackupButton competitionId={competition.id} generate={generateBackupAction} />
       </div>
 
       <Alert tone="info">
-        <strong>These four files can rebuild the competition from nothing.</strong>{" "}
+        <strong>These files can rebuild the competition from nothing.</strong>{" "}
         <code>transactions</code> and <code>prices</code> are sufficient on their own — holdings and
         every valuation are derivable from the ledger. <code>participants</code> and{" "}
         <code>holdings</code> are included so a rebuild can be checked against what was there, since

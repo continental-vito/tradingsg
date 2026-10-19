@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { PrismaClient } from "@/generated/prisma/client";
-import type { DateKey } from "@/lib/dates";
+import { startOfWeek, weekdayOf, type DateKey } from "@/lib/dates";
 import { ANSWER_EXPORT_HEADERS, answerExportRows } from "@/server/survey/questions";
 import { toCsv } from "./csv";
 
@@ -294,16 +294,43 @@ export async function storeExports(
 }
 
 /**
- * Drops exports older than `keepDays`. A backup nobody will ever open still
- * costs storage, and the useful window for "undo what happened" is weeks.
+ * Thins the daily backups to one per week once a week is over: every Friday is
+ * kept, and so is every day since the most recent Friday, so the current week
+ * still has a restore point for each day. Anything older that is not its
+ * week's Friday is deleted.
+ *
+ * A week with no Friday backup — the job failed that night, or nothing ran —
+ * keeps its last backup instead, so a gap never leaves a week with nothing.
+ * Returns the number of rows deleted (one per file).
  */
-export async function pruneExports(
-  db: PrismaClient,
-  competitionId: string,
-  olderThan: DateKey,
-): Promise<number> {
+export async function thinExports(db: PrismaClient, competitionId: string): Promise<number> {
+  const dates = (
+    await db.dataExport.findMany({
+      where: { competitionId },
+      distinct: ["asOfDate"],
+      select: { asOfDate: true },
+      orderBy: { asOfDate: "asc" },
+    })
+  ).map((d) => d.asOfDate);
+
+  const fridays = dates.filter((d) => weekdayOf(d) === 5);
+  const latestFriday = fridays[fridays.length - 1];
+  if (!latestFriday) return 0;
+
+  // One keeper per Monday-to-Sunday week: its Friday, else its last backup.
+  const byWeek = new Map<DateKey, DateKey[]>();
+  for (const date of dates) {
+    const week = startOfWeek(date);
+    byWeek.set(week, [...(byWeek.get(week) ?? []), date]);
+  }
+  const keep = new Set(
+    [...byWeek.values()].map((days) => days.find((d) => weekdayOf(d) === 5) ?? days.at(-1) ?? ""),
+  );
+
+  const doomed = dates.filter((d) => d < latestFriday && !keep.has(d));
+  if (doomed.length === 0) return 0;
   const result = await db.dataExport.deleteMany({
-    where: { competitionId, asOfDate: { lt: olderThan } },
+    where: { competitionId, asOfDate: { in: doomed } },
   });
   return result.count;
 }

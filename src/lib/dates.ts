@@ -138,6 +138,22 @@ export function periodKeyFor(
   }
 }
 
+/** The first day of the period containing `key`. */
+export function startOfPeriod(
+  key: DateKey,
+  unit: "DAY" | "WEEK" | "MONTH",
+  weekStartsOn = 1,
+): DateKey {
+  switch (unit) {
+    case "DAY":
+      return key;
+    case "WEEK":
+      return startOfWeek(key, weekStartsOn);
+    case "MONTH":
+      return `${key.slice(0, 7)}-01`;
+  }
+}
+
 /**
  * The first day of the period after the one containing `key` — when a used
  * "one change per period" allowance comes back. With WEEK and a Monday week

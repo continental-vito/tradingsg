@@ -263,6 +263,8 @@ const settingsSchema = z.object({
   tradingMode: z.enum(["ANYTIME", "ONCE_PER_PERIOD", "WINDOWS", "LOCKED"]),
   periodUnit: z.enum(["DAY", "WEEK", "MONTH"]),
   maxChangesPerPeriod: z.coerce.number().int().min(1).max(50),
+  // 0 = any day of the period.
+  periodOpenDays: z.coerce.number().int().min(0).max(31),
   lockAfterDate: z.string().regex(DATE).or(z.literal("")).optional(),
   allowTradingBeforeStart: z.boolean(),
 
@@ -401,6 +403,7 @@ export async function updateSettingsAction(
         tradingMode: d.tradingMode,
         periodUnit: d.periodUnit,
         maxChangesPerPeriod: d.maxChangesPerPeriod,
+        periodOpenDays: d.periodOpenDays > 0 ? d.periodOpenDays : null,
         lockAfterDate: d.lockAfterDate || null,
         allowTradingBeforeStart: d.allowTradingBeforeStart,
 

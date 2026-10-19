@@ -149,9 +149,9 @@ describe("launch", () => {
     ).toBe(1);
   });
 
-  it("does not use up anyone's first weekly rebalance token", async () => {
+  it("does not use up anyone's rebalance token", async () => {
     const access = await loadTradingAccess(db, alice.portfolio.id, new Date(`${LAUNCH}T21:30:00Z`));
-    expect(access?.tokens?.remaining).toBe(1);
+    expect(access?.tokens?.used).toBe(0);
   });
 
   it("happens once: a second run trades nothing", async () => {

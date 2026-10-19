@@ -115,7 +115,7 @@ describe("relaunchCompetition", () => {
     expect(b.status).toBe("WITHDRAWN");
   });
 
-  it("adds the 1% fee and one rebalance a week as a new rules revision", async () => {
+  it("adds the 1% fee and one rebalance a month, in its first week, as a new rules revision", async () => {
     const settings = await db.competitionSettings.findMany({
       where: { competitionId },
       orderBy: { revision: "asc" },
@@ -128,8 +128,9 @@ describe("relaunchCompetition", () => {
       feeModel: "PERCENT",
       feeBps: 100,
       tradingMode: "ONCE_PER_PERIOD",
-      periodUnit: "WEEK",
+      periodUnit: "MONTH",
       maxChangesPerPeriod: 1,
+      periodOpenDays: 7,
       // Everything else carried over from the revision it replaced.
       maxPositionPpm: 1_000_000,
     });

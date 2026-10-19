@@ -13,7 +13,7 @@ import { snapshotLeaderboard } from "./leaderboard";
 import { snapshotValuations } from "./valuations";
 import { runNotifications } from "./notifications";
 import { runHousekeeping } from "./housekeeping";
-import { pruneExports, storeExports } from "@/server/backup/export";
+import { storeExports, thinExports } from "@/server/backup/export";
 import { buildWeeklyReport } from "@/server/reports/generate";
 import { runJob, type JobOutcome } from "./run";
 import { dueLaunches, launchCompetition } from "@/server/competition/prelaunch";
@@ -449,12 +449,12 @@ export const JOBS: JobDefinition[] = [
                   files.map((f) => `${f.kind}=${f.rowCount}`).join(" "),
               );
 
-              // Ninety days is well past the length of a competition, so the
-              // whole of one is always recoverable while nothing accumulates
-              // forever.
-              const cutoff = addDays(today, -90);
-              const pruned = await pruneExports(ctx.db, competition.id, cutoff);
-              if (pruned > 0) ctx.log(`pruned ${pruned} export(s) older than ${cutoff}`);
+              // Daily for the current week, then one per week: once a Friday
+              // backup exists, the days before it in its week are dropped.
+              // Every Friday is kept, so the history at each week's end
+              // survives for the whole competition.
+              const thinned = await thinExports(ctx.db, competition.id);
+              if (thinned > 0) ctx.log(`thinned ${thinned} export file(s) to the weekly Friday`);
 
               return { itemsProcessed: rows, detail: { files: files.length, bytes } };
             },

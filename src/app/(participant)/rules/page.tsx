@@ -29,6 +29,15 @@ const PRICE_MODE: Record<string, string> = {
  * rather than hard-coded, and a rules page that can disagree with the engine is
  * worse than none.
  */
+/** 1st, 2nd, 3rd, 4th … 11th, 12th, 13th … 21st, 22nd. */
+function ordinal(n: number): string {
+  const teen = n % 100 >= 11 && n % 100 <= 13;
+  const suffix = teen
+    ? "th"
+    : (({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[n % 10] ?? "th");
+  return `${n}${suffix}`;
+}
+
 export default async function RulesPage() {
   const user = await requirePlayer();
 
@@ -114,7 +123,10 @@ export default async function RulesPage() {
               value: TRADING_MODE[s.tradingMode] ?? s.tradingMode,
               note:
                 s.tradingMode === "ONCE_PER_PERIOD"
-                  ? `${s.maxChangesPerPeriod} change${s.maxChangesPerPeriod === 1 ? "" : "s"} per ${s.periodUnit.toLowerCase()}.`
+                  ? `${s.maxChangesPerPeriod} change${s.maxChangesPerPeriod === 1 ? "" : "s"} per ${s.periodUnit.toLowerCase()}` +
+                    (s.periodOpenDays && s.periodUnit !== "DAY"
+                      ? `, only during the first ${s.periodOpenDays} days of the ${s.periodUnit.toLowerCase()}${s.periodUnit === "MONTH" ? ` (the 1st to the ${ordinal(s.periodOpenDays)})` : ""}. A change not used in that window expires until the next one.`
+                      : ".")
                   : undefined,
             },
             ...(s.lockAfterDate

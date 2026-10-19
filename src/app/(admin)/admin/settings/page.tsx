@@ -49,6 +49,7 @@ export default async function AdminSettingsPage() {
             tradingMode: current.tradingMode,
             periodUnit: current.periodUnit,
             maxChangesPerPeriod: current.maxChangesPerPeriod,
+            periodOpenDays: current.periodOpenDays ?? 0,
             lockAfterDate: current.lockAfterDate ?? "",
             allowTradingBeforeStart: current.allowTradingBeforeStart,
             maxPositionPct: current.maxPositionPpm / 10_000,

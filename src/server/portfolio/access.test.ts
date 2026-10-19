@@ -12,15 +12,21 @@ let competitionId: string;
 let stockId: string;
 let alice: Awaited<ReturnType<typeof seedParticipant>>;
 
-// 2026-08-05 is a Wednesday; the week's token comes back on Monday 10 August.
-const WEDNESDAY = new Date("2026-08-05T10:00:00Z");
-const NEXT_MONDAY = new Date("2026-08-10T10:00:00Z");
+// October 2026: the window is the 1st to the 7th; the next opens on 1 November.
+const IN_WINDOW = new Date("2026-10-02T10:00:00Z"); // Friday the 2nd
+const AFTER_WINDOW = new Date("2026-10-08T10:00:00Z"); // Thursday the 8th
+const NEXT_MONTH = new Date("2026-11-02T10:00:00Z");
+let bob: Awaited<ReturnType<typeof seedParticipant>>;
 
 beforeAll(async () => {
   const t = await createTestDb();
   db = t.db;
   cleanup = t.cleanup;
   competitionId = (await seedCompetition(db)).id;
+  await db.competition.update({
+    where: { id: competitionId },
+    data: { endsAt: new Date("2026-12-31T17:30:00Z"), endDate: "2026-12-31" },
+  });
   await db.competitionSettings.create({
     data: { competitionId, revision: 1, ...HOUSE_RULES, maxPositionPpm: 1_000_000 },
   });
@@ -29,49 +35,66 @@ beforeAll(async () => {
   await db.competitionStock.create({ data: { competitionId, stockId } });
   await db.priceHistory.createMany({
     data: [
-      { stockId, tradeDate: "2026-08-04", closeCents: 50_000n },
-      { stockId, tradeDate: "2026-08-07", closeCents: 50_000n },
+      { stockId, tradeDate: "2026-10-01", closeCents: 50_000n },
+      { stockId, tradeDate: "2026-11-02", closeCents: 50_000n },
     ],
   });
   alice = await seedParticipant(db, competitionId, "alice@example.com");
+  bob = await seedParticipant(db, competitionId, "bob@example.com");
 }, 60_000);
 
 afterAll(async () => {
   await cleanup();
 });
 
-describe("the weekly rebalance token", () => {
-  it("is available before the week's first rebalance", async () => {
-    const access = await loadTradingAccess(db, alice.portfolio.id, WEDNESDAY);
+describe("the monthly rebalance token, open in the first week", () => {
+  it("is available on the 1st to the 7th, and says until when", async () => {
+    const access = await loadTradingAccess(db, alice.portfolio.id, IN_WINDOW);
     expect(access?.decision.allowed).toBe(true);
-    expect(access?.tokens).toMatchObject({ allowance: 1, used: 0, remaining: 1 });
-    expect(access?.tokens?.refillsOn).toBe("2026-08-10");
+    expect(access?.tokens).toMatchObject({
+      allowance: 1,
+      used: 0,
+      remaining: 1,
+      usableUntil: "2026-10-07",
+      refillsOn: "2026-11-01",
+      expired: false,
+    });
   });
 
   it("is spent by a rebalance, and the banner says when it comes back", async () => {
-    const before = await loadTradingAccess(db, alice.portfolio.id, WEDNESDAY);
+    const before = await loadTradingAccess(db, alice.portfolio.id, IN_WINDOW);
     const result = await commitRebalance(db, {
       portfolioId: alice.portfolio.id,
       targets: [{ stockId, weightPpm: 500_000 }],
-      idempotencyKey: "alice-week-32",
+      idempotencyKey: "alice-october",
       periodKey: before?.decision.periodKey ?? null,
-      asOfDate: "2026-08-05",
-      executedAt: WEDNESDAY,
+      asOfDate: "2026-10-02",
+      executedAt: IN_WINDOW,
     });
     expect(result.ok).toBe(true);
 
-    const after = await loadTradingAccess(db, alice.portfolio.id, WEDNESDAY);
+    const after = await loadTradingAccess(db, alice.portfolio.id, IN_WINDOW);
     expect(after?.decision.allowed).toBe(false);
     expect(after?.decision.reason?.code).toBe("PERIOD_LIMIT_REACHED");
-    expect(after?.decision.reason?.message).toContain("weekly rebalance token");
-    expect(after?.decision.reason?.message).toContain("Monday 10 August");
+    expect(after?.decision.reason?.message).toContain("monthly rebalance token");
+    expect(after?.decision.reason?.message).toContain("Sunday 1 November");
     expect(after?.tokens?.remaining).toBe(0);
   });
 
-  it("comes back on Monday — last week's rebalance does not count against this one", async () => {
-    // The bug this guards: the count used to include every committed rebalance
-    // that had ever had a period key, so after week one nobody could trade again.
-    const access = await loadTradingAccess(db, alice.portfolio.id, NEXT_MONDAY);
+  it("expires unused after the 7th, until next month's window", async () => {
+    // Bob never rebalanced in October's first week.
+    const access = await loadTradingAccess(db, bob.portfolio.id, AFTER_WINDOW);
+    expect(access?.decision.allowed).toBe(false);
+    expect(access?.decision.reason?.code).toBe("REBALANCE_WINDOW_CLOSED");
+    expect(access?.decision.reason?.message).toContain("expired");
+    expect(access?.decision.reason?.message).toContain("Sunday 1 November");
+    expect(access?.tokens).toMatchObject({ remaining: 0, expired: true });
+  });
+
+  it("comes back next month — last month's rebalance does not count against this one", async () => {
+    // The bug this guards: the count once included every committed rebalance
+    // that had ever had a period key, so after period one nobody could trade.
+    const access = await loadTradingAccess(db, alice.portfolio.id, NEXT_MONTH);
     expect(access?.decision.allowed).toBe(true);
     expect(access?.tokens?.remaining).toBe(1);
   });

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { createTestDb, seedCompetition, seedParticipant } from "@/test/db";
 import { commitRebalance } from "@/server/portfolio/commit";
-import { EXPORT_KINDS, buildExports, storeExports, pruneExports } from "./export";
+import { EXPORT_KINDS, buildExports, storeExports, thinExports } from "./export";
 import { csvCell, toCsv } from "./csv";
 
 let db: PrismaClient;
@@ -188,16 +188,53 @@ describe("storeExports", () => {
     expect(row.triggeredBy).toBe("ADMIN");
   });
 
-  it("prunes only what is older than the cutoff", async () => {
-    await storeExports(db, competitionId, "2026-05-01", "CRON");
-    const before = await db.dataExport.count({ where: { competitionId } });
-    const pruned = await pruneExports(db, competitionId, "2026-06-01");
-    const perDay = EXPORT_KINDS.length;
-    expect(pruned).toBe(perDay);
-    expect(await db.dataExport.count({ where: { competitionId } })).toBe(before - perDay);
-    // The recent one is untouched.
-    expect(await db.dataExport.count({ where: { competitionId, asOfDate: "2026-07-27" } })).toBe(
-      perDay,
+  it("keeps every Friday and the days since the last one, and thins the rest", async () => {
+    // Fri 2 Oct, the whole week of 5 Oct (Mon–Sun), and Mon 12 Oct.
+    const days = [
+      "2026-10-02",
+      "2026-10-05",
+      "2026-10-06",
+      "2026-10-07",
+      "2026-10-08",
+      "2026-10-09",
+      "2026-10-10",
+      "2026-10-11",
+      "2026-10-12",
+    ];
+    for (const day of days) await storeExports(db, competitionId, day, "CRON");
+
+    await thinExports(db, competitionId);
+    const kept = (
+      await db.dataExport.findMany({
+        where: { competitionId, asOfDate: { gte: "2026-10-01" } },
+        distinct: ["asOfDate"],
+        select: { asOfDate: true },
+        orderBy: { asOfDate: "asc" },
+      })
+    ).map((d) => d.asOfDate);
+    // Both Fridays survive; Mon–Thu of that week go; the weekend and Monday
+    // after the last Friday are still this week's daily restore points.
+    expect(kept).toEqual(["2026-10-02", "2026-10-09", "2026-10-10", "2026-10-11", "2026-10-12"]);
+    // Every file of a kept day is still there.
+    expect(await db.dataExport.count({ where: { competitionId, asOfDate: "2026-10-09" } })).toBe(
+      EXPORT_KINDS.length,
     );
+  });
+
+  it("keeps the last backup of a week whose Friday is missing", async () => {
+    // Week of 19 Oct: Mon–Thu written, Friday's run failed; then Fri 30 Oct.
+    for (const day of ["2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-30"]) {
+      await storeExports(db, competitionId, day, "CRON");
+    }
+    await thinExports(db, competitionId);
+    const kept = (
+      await db.dataExport.findMany({
+        where: { competitionId, asOfDate: { gte: "2026-10-19" } },
+        distinct: ["asOfDate"],
+        select: { asOfDate: true },
+        orderBy: { asOfDate: "asc" },
+      })
+    ).map((d) => d.asOfDate);
+    expect(kept).toEqual(["2026-10-22", "2026-10-30"]);
   });
 });

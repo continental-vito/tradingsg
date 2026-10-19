@@ -193,6 +193,10 @@ model CompetitionSettings {
   // PeriodUnit: DAY | WEEK | MONTH — the bucket ONCE_PER_PERIOD counts within.
   periodUnit          String  @default("WEEK")
   maxChangesPerPeriod Int     @default(1)
+  // When set, a change is only allowed in the first N days of each period:
+  // with MONTH and 7, rebalancing is open from the 1st to the 7th, and a token
+  // not used by then expires until next month's window. Null = any day.
+  periodOpenDays      Int?
   lockAfterDate       String? // "YYYY-MM-DD"; no trading on or after
   allowTradingBeforeStart Boolean @default(true)
 

@@ -1,5 +1,12 @@
 import type { DateKey } from "@/lib/dates";
-import { dateKeyOf, formatDateKeyLong, nextPeriodStart, periodKeyFor } from "@/lib/dates";
+import {
+  addDays,
+  dateKeyOf,
+  formatDateKeyLong,
+  nextPeriodStart,
+  periodKeyFor,
+  startOfPeriod,
+} from "@/lib/dates";
 
 /**
  * Whether this participant may trade right now, and which period bucket the
@@ -14,6 +21,8 @@ export interface WindowRules {
   tradingMode: string;
   periodUnit: "DAY" | "WEEK" | "MONTH";
   maxChangesPerPeriod: number;
+  /** Changes are only allowed in the first N days of each period. Null = any day. */
+  periodOpenDays?: number | null;
   lockAfterDate: string | null;
   allowTradingBeforeStart: boolean;
   timezone: string;
@@ -102,6 +111,7 @@ export function evaluateTradingWindow(args: {
 
     case "ONCE_PER_PERIOD": {
       const periodKey = periodKeyFor(today, rules.periodUnit, rules.weekStartsOn);
+      const window = openWindow(today, rules);
       if (changesThisPeriod >= rules.maxChangesPerPeriod) {
         const unit =
           rules.periodUnit === "WEEK"
@@ -117,10 +127,36 @@ export function evaluateTradingWindow(args: {
           `You have used your ${unit} rebalance ${rules.maxChangesPerPeriod === 1 ? "token" : `tokens (${rules.maxChangesPerPeriod})`}. Please wait until ${back} to rebalance again.`,
         );
       }
+      if (window && today > window.closesOn) {
+        // The allowance was not used while the window was open. It does not
+        // carry over: it expires until the next period's window.
+        const unit = rules.periodUnit === "WEEK" ? "week" : "month";
+        return deny(
+          "REBALANCE_WINDOW_CLOSED",
+          `Rebalancing is only open during the first ${rules.periodOpenDays} days of each ${unit}, and this ${unit}'s window closed on ${formatDateKeyLong(window.closesOn)}. Your token expired unused; the next window opens on ${formatDateKeyLong(window.nextOpensOn)}.`,
+        );
+      }
       return { allowed: true, periodKey };
     }
 
     default:
       return { allowed: true, periodKey: null };
   }
+}
+
+/**
+ * The days of the current period in which changes are allowed, when the rules
+ * limit them to the first N days. Null when any day of the period will do.
+ */
+export function openWindow(
+  today: DateKey,
+  rules: Pick<WindowRules, "periodUnit" | "periodOpenDays" | "weekStartsOn">,
+): { opensOn: DateKey; closesOn: DateKey; nextOpensOn: DateKey } | null {
+  if (!rules.periodOpenDays || rules.periodUnit === "DAY") return null;
+  const opensOn = startOfPeriod(today, rules.periodUnit, rules.weekStartsOn);
+  return {
+    opensOn,
+    closesOn: addDays(opensOn, rules.periodOpenDays - 1),
+    nextOpensOn: nextPeriodStart(today, rules.periodUnit, rules.weekStartsOn),
+  };
 }

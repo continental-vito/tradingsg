@@ -1,6 +1,7 @@
 /**
  * The rules this competition runs under unless an administrator changes them:
- * a 1% transaction cost on every order, and one rebalance per week.
+ * a 1% transaction cost on every order, and one rebalance per month, open only
+ * on the 1st to the 7th — a token not used by the 7th expires until next month.
  *
  * The schema's column defaults are deliberately left at "no fee, trade any
  * time" — they are what the test suite's bare settings rows rely on, and a
@@ -10,9 +11,9 @@
  *
  * The fee is charged on each order's gross amount and ceils (see feeFor in
  * src/server/money.ts), so a round trip costs about 2% and can never be free.
- * The weekly token resets on the competition's week start — Monday — in its
- * timezone, and is counted from the ledger rather than stored (see
- * src/server/portfolio/access.ts).
+ * The token is counted from the ledger rather than stored (see
+ * src/server/portfolio/access.ts), and the window is the first seven calendar
+ * days of each month in the competition's timezone — always five trading days.
  */
 export const HOUSE_RULES = {
   feeModel: "PERCENT",
@@ -21,6 +22,7 @@ export const HOUSE_RULES = {
   feeMinCents: 0n,
   feeMaxCents: null,
   tradingMode: "ONCE_PER_PERIOD",
-  periodUnit: "WEEK",
+  periodUnit: "MONTH",
   maxChangesPerPeriod: 1,
+  periodOpenDays: 7,
 } as const;

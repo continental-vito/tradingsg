@@ -22,9 +22,11 @@ export function TokenBanner({
     return (
       <Alert tone="info">
         <strong className="block">
-          {tokens && tokens.remaining === 0
-            ? `You used your ${UNIT[tokens.periodUnit]} rebalance token`
-            : "You cannot rebalance right now"}
+          {tokens?.expired && tokens.used < tokens.allowance
+            ? `Your ${UNIT[tokens.periodUnit]} rebalance token has expired`
+            : tokens && tokens.remaining === 0
+              ? `You used your ${UNIT[tokens.periodUnit]} rebalance token`
+              : "You cannot rebalance right now"}
         </strong>
         {reason}
       </Alert>
@@ -39,8 +41,15 @@ export function TokenBanner({
         {tokens.remaining} of {tokens.allowance} {unit} rebalance token
         {tokens.allowance === 1 ? "" : "s"} left.
       </span>{" "}
-      Confirming a change uses {tokens.remaining === 1 ? "it" : "one"}; a fresh token arrives on{" "}
-      {formatDateKeyLong(tokens.refillsOn)}.
+      Confirming a change uses {tokens.remaining === 1 ? "it" : "one"}
+      {tokens.usableUntil ? (
+        <>
+          . Use it by <strong>{formatDateKeyLong(tokens.usableUntil)}</strong> — after that it
+          expires unused, and the next one arrives on {formatDateKeyLong(tokens.refillsOn)}.
+        </>
+      ) : (
+        <>; a fresh token arrives on {formatDateKeyLong(tokens.refillsOn)}.</>
+      )}
     </p>
   );
 }

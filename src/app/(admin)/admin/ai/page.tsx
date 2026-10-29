@@ -9,7 +9,7 @@ import { AiStrategyForm, CreateAiInvestorForm } from "@/components/admin-control
 import { AllocationEditor } from "@/components/allocation-editor";
 import { TokenBanner } from "@/components/rebalance-token";
 import { PreLaunchBanner } from "@/components/prelaunch-banner";
-import { isPreLaunch, queuedOrder } from "@/server/competition/prelaunch";
+import { isPreLaunch, preLaunchWindow, queuedOrder } from "@/server/competition/prelaunch";
 import { Alert, Card, EmptyState } from "@/components/ui";
 import { dateKeyOf } from "@/lib/dates";
 import { requireAdmin } from "@/server/auth/guard";
@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
 
 const DEFAULT_STRATEGY =
   "Diversified across 6 to 10 names, sized by conviction. Changes only what " +
-  "there is a reason to change, because every trade costs 1%.";
+  "there is a reason to change, because every trade pays a fee.";
 
 async function loadInvestors() {
   try {
@@ -76,7 +76,7 @@ export default async function AdminAiPage() {
         <h1 className="text-2xl font-semibold tracking-tight">AI investor</h1>
         <p className="mt-1 text-sm text-[var(--text-muted)]">
           A participant whose portfolio you manage from here. It plays by exactly the same rules as
-          everyone else — one rebalance per week, the same position limits, the same 1% transaction
+          everyone else — one rebalance per month, the same position limits, the same transaction
           cost — because its changes go through the same preview and confirmation a
           participant&rsquo;s do. Nothing trades it automatically.
         </p>
@@ -117,7 +117,12 @@ export default async function AdminAiPage() {
           const editorStocks = queued
             ? stocks.map((s) => ({ ...s, currentWeightPpm: queuedWeight.get(s.id) ?? 0 }))
             : stocks;
-          const canTrade = preLaunch || (access?.decision.allowed ?? false);
+          const building = preLaunch
+            ? preLaunchWindow(comp, dateKeyOf(new Date(), comp.timezone))
+            : null;
+          const canTrade = building
+            ? building.state === "OPEN"
+            : (access?.decision.allowed ?? false);
 
           return (
             <div key={investor.id} className="space-y-4">
@@ -139,8 +144,7 @@ export default async function AdminAiPage() {
 
               {preLaunch ? (
                 <PreLaunchBanner
-                  launchDate={comp.startDate}
-                  today={dateKeyOf(new Date(), comp.timezone)}
+                  window={building ?? preLaunchWindow(comp, dateKeyOf(new Date(), comp.timezone))}
                   queuedPositions={queued ? queued.length : null}
                 />
               ) : access && !canTrade ? (

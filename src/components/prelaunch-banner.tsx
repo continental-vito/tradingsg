@@ -1,33 +1,53 @@
 import { Alert } from "@/components/ui";
-import { daysBetween, formatDateKeyLong, type DateKey } from "@/lib/dates";
+import { formatDateKeyLong } from "@/lib/dates";
+import type { PreLaunchWindow } from "@/server/competition/prelaunch";
 
 /**
  * What pre-launch means for the person reading it: nothing has been bought,
- * when it will be, and whether their order is in.
+ * the three dates that matter, and whether their order is in.
  */
 export function PreLaunchBanner({
-  launchDate,
-  today,
+  window,
   queuedPositions,
 }: {
-  launchDate: DateKey;
-  today: DateKey;
+  window: PreLaunchWindow;
   /** Positions in the queued order; null when nothing is queued yet. */
   queuedPositions: number | null;
 }) {
-  const days = daysBetween(today, launchDate);
-  const when =
-    days > 1
-      ? `in ${days} days, on ${formatDateKeyLong(launchDate)}`
-      : days === 1
-        ? "tomorrow"
-        : "today";
+  const launch = formatDateKeyLong(window.launchOn);
+  const building =
+    window.opensOn && window.closesOn
+      ? `from ${formatDateKeyLong(window.opensOn)} to ${formatDateKeyLong(window.closesOn)}`
+      : window.closesOn
+        ? `until ${formatDateKeyLong(window.closesOn)}`
+        : `until ${launch}`;
+  const queued =
+    queuedPositions === null
+      ? null
+      : `Your portfolio is queued (${queuedPositions} position${queuedPositions === 1 ? "" : "s"}).`;
+
+  const title =
+    window.state === "BEFORE"
+      ? `Portfolio building opens on ${formatDateKeyLong(window.opensOn ?? window.launchOn)}`
+      : window.state === "OPEN"
+        ? queued
+          ? "Your portfolio is queued for launch"
+          : `Build your portfolio ${window.closesOn ? `by ${formatDateKeyLong(window.closesOn)}` : `before ${launch}`}`
+        : "Portfolio building is closed";
+
   return (
-    <Alert tone={queuedPositions === null ? "info" : "success"}>
-      <strong className="block">Pre-launch: the competition starts {when}</strong>
-      {queuedPositions === null
-        ? "Build your portfolio before then. Nothing is bought yet: every participant's order executes together at the close on launch day, at the same prices, so nobody gets a head start."
-        : `Your portfolio is queued (${queuedPositions} position${queuedPositions === 1 ? "" : "s"}) and executes at the close on launch day, together with everyone else's. You can change it until then.`}
+    <Alert tone={queued ? "success" : "info"}>
+      <strong className="block">{title}</strong>
+      Nothing is bought yet. You can build or change your portfolio {building}; every
+      participant&rsquo;s order then executes together at the close on {launch}, at the same prices,
+      and portfolios are valued from that day.{" "}
+      {queued
+        ? window.state === "OPEN"
+          ? `${queued} You can still change it.`
+          : queued
+        : window.state === "CLOSED"
+          ? "You did not queue a portfolio, so you start in cash and can invest in the next monthly window."
+          : ""}
     </Alert>
   );
 }

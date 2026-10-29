@@ -13,7 +13,7 @@ import { db } from "@/server/db";
 import { loadTradingAccess } from "@/server/portfolio/access";
 import { TokenBanner } from "@/components/rebalance-token";
 import { PreLaunchBanner } from "@/components/prelaunch-banner";
-import { isPreLaunch, queuedOrder } from "@/server/competition/prelaunch";
+import { isPreLaunch, preLaunchWindow, queuedOrder } from "@/server/competition/prelaunch";
 import { dateKeyOf } from "@/lib/dates";
 
 export const metadata: Metadata = { title: "Portfolio" };
@@ -36,7 +36,14 @@ export default async function PortfolioPage() {
         where: { id: data.participant.portfolioId },
         select: {
           competition: {
-            select: { preLaunch: true, launchedAt: true, startDate: true, timezone: true },
+            select: {
+              preLaunch: true,
+              launchedAt: true,
+              startDate: true,
+              timezone: true,
+              preLaunchOpensOn: true,
+              preLaunchClosesOn: true,
+            },
           },
         },
       })
@@ -46,7 +53,14 @@ export default async function PortfolioPage() {
     preLaunch && data.participant.portfolioId
       ? await queuedOrder(db, data.participant.portfolioId)
       : null;
-  const canTrade = preLaunch || (access?.decision.allowed ?? true);
+  const building =
+    preLaunch && prelaunch
+      ? preLaunchWindow(
+          prelaunch.competition,
+          dateKeyOf(new Date(), prelaunch.competition.timezone),
+        )
+      : null;
+  const canTrade = building ? building.state === "OPEN" : (access?.decision.allowed ?? true);
 
   // Shorts are liabilities and cannot be slices of a whole; they are listed
   // under the chart instead. Same split as the dashboard.
@@ -98,8 +112,13 @@ export default async function PortfolioPage() {
 
       {preLaunch && prelaunch ? (
         <PreLaunchBanner
-          launchDate={prelaunch.competition.startDate}
-          today={dateKeyOf(new Date(), prelaunch.competition.timezone)}
+          window={
+            building ??
+            preLaunchWindow(
+              prelaunch.competition,
+              dateKeyOf(new Date(), prelaunch.competition.timezone),
+            )
+          }
           queuedPositions={queued ? queued.length : null}
         />
       ) : access && !canTrade ? (

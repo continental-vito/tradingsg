@@ -73,7 +73,7 @@ describe("the AI investor", () => {
     expect(await findAiPortfolio(db, "no-such-portfolio")).toBeNull();
   });
 
-  it("is held to the same weekly token and 1% fee as a person", async () => {
+  it("is held to the same rebalance token and fee as a person", async () => {
     const before = await loadTradingAccess(db, aiPortfolioId, WEDNESDAY);
     expect(before?.tokens?.remaining).toBe(1);
 
@@ -90,7 +90,7 @@ describe("the AI investor", () => {
     const buy = await db.transaction.findFirstOrThrow({
       where: { portfolioId: aiPortfolioId, type: "BUY" },
     });
-    expect(buy.feeCents).toBe((buy.grossCents + 99n) / 100n);
+    expect(buy.feeCents).toBe((buy.grossCents * 50n + 9_999n) / 10_000n);
     expect(await checkPortfolioInvariants(db, aiPortfolioId)).toEqual([]);
 
     const after = await loadTradingAccess(db, aiPortfolioId, WEDNESDAY);

@@ -65,7 +65,27 @@ const competitionSchema = z.object({
   startDate: z.string().regex(DATE, "Use a YYYY-MM-DD date."),
   endDate: z.string().regex(DATE, "Use a YYYY-MM-DD date."),
   preLaunch: z.boolean().optional(),
+  preLaunchOpensOn: z.string().regex(DATE).or(z.literal("")).optional(),
+  preLaunchClosesOn: z.string().regex(DATE).or(z.literal("")).optional(),
 });
+
+/** The editing window must sit before the launch, in order. Null when it does. */
+function preLaunchWindowError(
+  opensOn: string | undefined,
+  closesOn: string | undefined,
+  startDate: string,
+): string | null {
+  if (opensOn && closesOn && opensOn > closesOn) {
+    return "Portfolio building has to open before it closes.";
+  }
+  if (closesOn && closesOn >= startDate) {
+    return `Portfolio building has to close before the start date (${startDate}), when the orders execute.`;
+  }
+  if (opensOn && opensOn >= startDate) {
+    return `Portfolio building has to open before the start date (${startDate}).`;
+  }
+  return null;
+}
 
 export async function updateCompetitionAction(
   input: z.input<typeof competitionSchema>,
@@ -100,6 +120,15 @@ export async function updateCompetitionAction(
     }
   }
 
+  if (d.preLaunch && !before.launchedAt) {
+    const problem = preLaunchWindowError(
+      d.preLaunchOpensOn || undefined,
+      d.preLaunchClosesOn || undefined,
+      d.startDate,
+    );
+    if (problem) return { ok: false, error: problem };
+  }
+
   if (d.preLaunch !== undefined && d.preLaunch !== before.preLaunch) {
     if (before.launchedAt) {
       return { ok: false, error: "This competition has already launched; pre-launch is over." };
@@ -124,7 +153,13 @@ export async function updateCompetitionAction(
   const updated = await db.competition.update({
     where: { id: d.competitionId },
     data: {
-      ...(d.preLaunch !== undefined && !before.launchedAt ? { preLaunch: d.preLaunch } : {}),
+      ...(d.preLaunch !== undefined && !before.launchedAt
+        ? {
+            preLaunch: d.preLaunch,
+            preLaunchOpensOn: d.preLaunch ? d.preLaunchOpensOn || null : null,
+            preLaunchClosesOn: d.preLaunch ? d.preLaunchClosesOn || null : null,
+          }
+        : {}),
       name: d.name,
       description: d.description ?? null,
       status: d.status,
@@ -178,6 +213,8 @@ const createSchema = z.object({
   timezone: z.string().trim().min(1).default("Europe/Berlin"),
   copyStocksFrom: z.string().optional(),
   preLaunch: z.boolean().default(false),
+  preLaunchOpensOn: z.string().regex(DATE).or(z.literal("")).optional(),
+  preLaunchClosesOn: z.string().regex(DATE).or(z.literal("")).optional(),
 });
 
 /**
@@ -199,6 +236,14 @@ export async function createCompetitionAction(
   if (d.endDate <= d.startDate) {
     return { ok: false, error: "The competition has to end after it starts." };
   }
+  if (d.preLaunch) {
+    const problem = preLaunchWindowError(
+      d.preLaunchOpensOn || undefined,
+      d.preLaunchClosesOn || undefined,
+      d.startDate,
+    );
+    if (problem) return { ok: false, error: problem };
+  }
   if (await db.competition.findUnique({ where: { slug: d.slug } })) {
     return { ok: false, error: `A competition with the address "${d.slug}" already exists.` };
   }
@@ -214,6 +259,8 @@ export async function createCompetitionAction(
         timezone: d.timezone,
         startingCapitalCents: BigInt(d.startingCapitalEuros) * 100n,
         preLaunch: d.preLaunch,
+        preLaunchOpensOn: d.preLaunch ? d.preLaunchOpensOn || null : null,
+        preLaunchClosesOn: d.preLaunch ? d.preLaunchClosesOn || null : null,
         startDate: d.startDate,
         endDate: d.endDate,
         startsAt: new Date(`${d.startDate}T08:00:00Z`),
@@ -802,8 +849,8 @@ export async function liquidateStockAction(
 
 /**
  * Relaunch: the CAC 40 + Bitcoin + S&P 500 ETF universe, every portfolio back
- * to its starting capital in cash, and the house rules (1% fee, one rebalance
- * a week). The work is in src/server/competition/relaunch.ts so it can be
+ * to its starting capital in cash, and the house rules (the fee, one rebalance
+ * a month). The work is in src/server/competition/relaunch.ts so it can be
  * tested; this adds the authorisation, the typed confirmation, the audit entry
  * and the first prices for the stocks it added.
  */
@@ -861,7 +908,7 @@ export async function relaunchCompetitionAction(
     message:
       `${competition.name} relaunched: ${result.stocksTradable} tradable stocks (${result.stocksAdded} added, ${result.stocksRemoved} removed), ` +
       `${result.portfoliosReset} portfolio${result.portfoliosReset === 1 ? "" : "s"} back to their starting cash, ` +
-      `and rules revision ${result.settingsRevision} with a 1% transaction cost and one rebalance per week.${pricing}`,
+      `and rules revision ${result.settingsRevision} with the house transaction cost and one rebalance per month.${pricing}`,
   };
 }
 

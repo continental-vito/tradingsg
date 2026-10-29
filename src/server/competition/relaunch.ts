@@ -5,7 +5,7 @@ import { UNIVERSE, type UniverseEntry } from "./universe";
 
 /**
  * Relaunching a competition: a new tradable universe, every portfolio back to
- * its starting capital in cash, and the house rules (1% fee, one rebalance a
+ * its starting capital in cash, and the house rules (the fee, one rebalance a
  * week) as a new settings revision.
  *
  * This is the one operation in the codebase that deletes ledger rows, and it is

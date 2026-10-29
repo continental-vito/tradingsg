@@ -745,6 +745,8 @@ export function CompetitionForm({
     hasValuations: boolean;
     preLaunch: boolean;
     launched: boolean;
+    preLaunchOpensOn: string;
+    preLaunchClosesOn: string;
   };
   save: (input: {
     competitionId: string;
@@ -755,6 +757,8 @@ export function CompetitionForm({
     startDate: string;
     endDate: string;
     preLaunch?: boolean;
+    preLaunchOpensOn?: string;
+    preLaunchClosesOn?: string;
   }) => Promise<ActionResult>;
 }) {
   const { pending, result, run } = useAction();
@@ -778,7 +782,13 @@ export function CompetitionForm({
               registrationOpen: form.registrationOpen,
               startDate: form.startDate,
               endDate: form.endDate,
-              ...(competition.launched ? {} : { preLaunch: form.preLaunch }),
+              ...(competition.launched
+                ? {}
+                : {
+                    preLaunch: form.preLaunch,
+                    preLaunchOpensOn: form.preLaunchOpensOn,
+                    preLaunchClosesOn: form.preLaunchClosesOn,
+                  }),
             }),
           );
         }}
@@ -854,12 +864,32 @@ export function CompetitionForm({
         </p>
 
         {competition.launched ? null : (
-          <Check
-            label="Pre-launch until the start date"
-            hint="Participants build their portfolios beforehand; nothing trades until launch, when every order executes together at the start date's close."
-            checked={form.preLaunch}
-            onChange={(v) => set("preLaunch", v)}
-          />
+          <>
+            <Check
+              label="Pre-launch until the start date"
+              hint="Participants build their portfolios beforehand; nothing trades until launch, when every order executes together at the start date's close and portfolios are valued for the first time."
+              checked={form.preLaunch}
+              onChange={(v) => set("preLaunch", v)}
+            />
+            {form.preLaunch ? (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Portfolio building opens" hint="Empty: open now.">
+                  <Input
+                    type="date"
+                    value={form.preLaunchOpensOn}
+                    onChange={(e) => set("preLaunchOpensOn", e.target.value)}
+                  />
+                </Field>
+                <Field label="Last day to edit" hint="Empty: until the day before the start.">
+                  <Input
+                    type="date"
+                    value={form.preLaunchClosesOn}
+                    onChange={(e) => set("preLaunchClosesOn", e.target.value)}
+                  />
+                </Field>
+              </div>
+            ) : null}
+          </>
         )}
 
         <Button type="submit" disabled={pending}>
@@ -886,10 +916,14 @@ export function CreateCompetitionForm({
     timezone: string;
     copyStocksFrom?: string;
     preLaunch: boolean;
+    preLaunchOpensOn?: string;
+    preLaunchClosesOn?: string;
   }) => Promise<ActionResult>;
 }) {
   const { pending, result, run } = useAction();
   const [preLaunch, setPreLaunch] = useState(true);
+  const [opensOn, setOpensOn] = useState("");
+  const [closesOn, setClosesOn] = useState("");
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [startDate, setStartDate] = useState("");
@@ -920,6 +954,7 @@ export function CreateCompetitionForm({
               timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Berlin",
               ...(copyStocks && copyStocksFrom ? { copyStocksFrom: copyStocksFrom.id } : {}),
               preLaunch,
+              ...(preLaunch ? { preLaunchOpensOn: opensOn, preLaunchClosesOn: closesOn } : {}),
             });
             if (r.ok) {
               setName("");
@@ -1010,6 +1045,16 @@ export function CreateCompetitionForm({
           checked={preLaunch}
           onChange={setPreLaunch}
         />
+        {preLaunch ? (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Portfolio building opens" hint="Empty: as soon as registration opens.">
+              <Input type="date" value={opensOn} onChange={(e) => setOpensOn(e.target.value)} />
+            </Field>
+            <Field label="Last day to edit" hint="Empty: until the day before the start.">
+              <Input type="date" value={closesOn} onChange={(e) => setClosesOn(e.target.value)} />
+            </Field>
+          </div>
+        ) : null}
 
         <p className="text-xs text-[var(--text-muted)]">
           Created as a draft with default rules and nobody able to join. Add or adjust stocks, set

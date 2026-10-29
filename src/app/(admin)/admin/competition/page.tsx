@@ -134,6 +134,8 @@ export default async function AdminCompetitionPage() {
                 hasValuations,
                 preLaunch: current.preLaunch,
                 launched: current.launchedAt !== null,
+                preLaunchOpensOn: current.preLaunchOpensOn ?? "",
+                preLaunchClosesOn: current.preLaunchClosesOn ?? "",
               }}
               save={updateCompetitionAction}
             />
@@ -158,6 +160,9 @@ export default async function AdminCompetitionPage() {
             <Card>
               <h2 className="text-sm font-medium">Pre-launch</h2>
               <p className="mt-1 mb-4 text-sm text-[var(--text-muted)]">
+                {current.preLaunchOpensOn || current.preLaunchClosesOn
+                  ? `Portfolio building ${current.preLaunchOpensOn ? `opens ${formatDateKeyLong(current.preLaunchOpensOn)}` : "is open now"}${current.preLaunchClosesOn ? ` and closes after ${formatDateKeyLong(current.preLaunchClosesOn)}` : ""}. `
+                  : ""}
                 Launches on {formatDateKeyLong(current.startDate)}
                 {preLaunchState.daysLeft > 0
                   ? `, in ${preLaunchState.daysLeft} day${preLaunchState.daysLeft === 1 ? "" : "s"}`
@@ -167,8 +172,8 @@ export default async function AdminCompetitionPage() {
                   {preLaunchState.queued} of {current._count.participants} participant
                   {current._count.participants === 1 ? "" : "s"}
                 </strong>{" "}
-                have queued a portfolio. Anyone who has not is left in cash and can trade normally
-                after launch.
+                have queued a portfolio. Anyone who has not starts in cash and can invest in the
+                next monthly window (the 1st to the 7th).
                 {current.status === "DRAFT" || !current.registrationOpen
                   ? " Participants cannot see it yet: set the status to Registration and accept new participants."
                   : ""}
@@ -198,9 +203,9 @@ export default async function AdminCompetitionPage() {
               {UNIVERSE.length - 2} CAC 40 stocks plus Bitcoin and an S&amp;P 500 ETF, and every
               other stock is removed; every portfolio goes back to{" "}
               {formatCents(current.startingCapitalCents, current.currency)} in cash, with its
-              trades, valuations, leaderboard history and reports deleted; and the rules gain a 1%
-              transaction cost and one rebalance per week, reset every Monday. Participants keep
-              their accounts.
+              trades, valuations, leaderboard history and reports deleted; and the rules gain the
+              house transaction cost and one rebalance per month, open on the 1st to the 7th.
+              Participants keep their accounts.
             </p>
             <RelaunchCompetitionForm
               competitionId={current.id}

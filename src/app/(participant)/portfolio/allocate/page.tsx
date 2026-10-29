@@ -14,7 +14,7 @@ import { loadAllocatable } from "@/server/dto/allocation";
 import { loadTradingAccess } from "@/server/portfolio/access";
 import { TokenBanner } from "@/components/rebalance-token";
 import { PreLaunchBanner } from "@/components/prelaunch-banner";
-import { isPreLaunch, queuedOrder } from "@/server/competition/prelaunch";
+import { isPreLaunch, preLaunchWindow, queuedOrder } from "@/server/competition/prelaunch";
 
 export const metadata: Metadata = { title: "Build your portfolio" };
 export const dynamic = "force-dynamic";
@@ -60,6 +60,7 @@ export default async function AllocatePage() {
   // not the boundary.
   const access = await loadTradingAccess(db, portfolio.id);
   const preLaunch = isPreLaunch(competition);
+  const building = preLaunch ? preLaunchWindow(competition, asOfDate) : null;
   const queued = preLaunch ? await queuedOrder(db, portfolio.id) : null;
   if (!preLaunch && access && !access.decision.allowed) {
     return (
@@ -110,15 +111,14 @@ export default async function AllocatePage() {
 
       {preLaunch ? (
         <PreLaunchBanner
-          launchDate={competition.startDate}
-          today={asOfDate}
+          window={building ?? preLaunchWindow(competition, asOfDate)}
           queuedPositions={queued ? queued.length : null}
         />
       ) : access?.tokens ? (
         <TokenBanner tokens={access.tokens} />
       ) : null}
 
-      {stocks.length === 0 ? (
+      {building && building.state !== "OPEN" ? null : stocks.length === 0 ? (
         <Alert>
           No stock in this competition has a price yet, so nothing can be allocated. Prices are
           written by the market-data job — ask the administrator to run it.

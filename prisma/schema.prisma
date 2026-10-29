@@ -152,6 +152,12 @@ model Competition {
   // a better price for having signed up first. launchedAt marks it done.
   preLaunch  Boolean   @default(false)
   launchedAt DateTime?
+  // The days, inclusive, on which queued portfolios may be built or changed
+  // ("YYYY-MM-DD" in `timezone`). Null opens = from now; null closes = until
+  // launch. Orders always execute on startDate, which is also the first
+  // valuation — so editing can close before it, leaving a quiet gap.
+  preLaunchOpensOn  String?
+  preLaunchClosesOn String?
 
   settings       CompetitionSettings[]
   tradingWindows TradingWindow[]

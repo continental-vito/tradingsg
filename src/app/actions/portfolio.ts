@@ -12,7 +12,7 @@ import { commitRebalance, loadTradingRules } from "@/server/portfolio/commit";
 import { buildPriceBook } from "@/server/portfolio/prices";
 import { planRebalance, type ValidationIssue } from "@/server/portfolio/rebalance";
 import { loadTradingAccess } from "@/server/portfolio/access";
-import { isPreLaunch, queuePreLaunchOrder } from "@/server/competition/prelaunch";
+import { isPreLaunch, preLaunchWindow, queuePreLaunchOrder } from "@/server/competition/prelaunch";
 import type { PortfolioState } from "@/server/portfolio/value";
 
 /**
@@ -137,7 +137,16 @@ async function buildPlan(portfolioId: string, rawTargets: unknown) {
   // Before a pre-launch competition starts nothing trades, so the weekly token
   // and the trading window do not apply: the order is queued, not executed.
   const preLaunch = isPreLaunch(portfolio.competition);
-  const window = preLaunch ? { allowed: true, periodKey: null } : access.decision;
+  const building = preLaunch ? preLaunchWindow(portfolio.competition, asOfDate) : null;
+  const window = building
+    ? building.state === "OPEN"
+      ? { allowed: true, periodKey: null }
+      : {
+          allowed: false,
+          periodKey: null,
+          reason: { code: "PRE_LAUNCH_CLOSED", message: building.reason ?? "" },
+        }
+    : access.decision;
 
   const { rules } = await loadTradingRules(db, portfolio.competitionId);
 

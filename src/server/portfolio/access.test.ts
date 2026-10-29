@@ -100,8 +100,8 @@ describe("the monthly rebalance token, open in the first week", () => {
   });
 });
 
-describe("the 1% transaction cost", () => {
-  it("charges 1% of the order on top of the purchase, and the ledger still reconciles", async () => {
+describe("the 0.5% transaction cost", () => {
+  it("charges 0.5% of the order on top of the purchase, and the ledger still reconciles", async () => {
     const portfolio = await db.portfolio.findUniqueOrThrow({
       where: { id: alice.portfolio.id },
       include: { transactions: { where: { type: "BUY" } } },
@@ -109,12 +109,11 @@ describe("the 1% transaction cost", () => {
     const buy = portfolio.transactions[0];
     expect(buy).toBeDefined();
     if (!buy) return;
-    // 1% of the order, rounded up to the cent, and capitalised into the cost.
-    expect(buy.feeCents).toBe((buy.grossCents + 99n) / 100n);
+    // 0.5% of the order, rounded up to the cent, and capitalised into the cost.
+    expect(buy.feeCents).toBe((buy.grossCents * 50n + 9_999n) / 10_000n);
     expect(buy.cashDeltaCents).toBe(-(buy.grossCents + buy.feeCents));
     expect(portfolio.totalFeesCents).toBe(buy.feeCents);
-    // The 50% is 50% of what is left AFTER the fee: €49,751 of LVMH out of
-    // €99,502.49, not €50,000 out of €99,500.
+    // The 50% is 50% of what is left AFTER the fee, not of the value before it.
     const after = 10_000_000n - buy.feeCents;
     expect(Number((buy.grossCents * 1_000_000n) / after)).toBeGreaterThanOrEqual(499_990);
     expect(Number((buy.grossCents * 1_000_000n) / after)).toBeLessThanOrEqual(500_000);

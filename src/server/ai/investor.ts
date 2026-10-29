@@ -10,7 +10,7 @@ import { enrolInCompetition } from "@/server/portfolio/enrol";
  * It is an ordinary participant in every way the competition can see — a User,
  * a Participant labelled "(AI)" on the leaderboard, a funded Portfolio — and
  * its rebalances go through the same preview and commit a person's do, so the
- * weekly token, the position caps, the 1% fee and the ledger invariants all
+ * rebalance token, the position caps, the fee and the ledger invariants all
  * apply. Nothing trades it automatically.
  *
  * Kept free of Next.js so the access rule below can be tested.

@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@/generated/prisma/client";
-import { dateKeyOf, type DateKey } from "@/lib/dates";
+import { dateKeyOf, formatDateKeyLong, type DateKey } from "@/lib/dates";
 import { commitRebalance, loadTradingRules } from "@/server/portfolio/commit";
 import { enrolInCompetition } from "@/server/portfolio/enrol";
 import { buildPriceBook } from "@/server/portfolio/prices";
@@ -17,7 +17,7 @@ import {
  * target weights — and can be replaced as often as the participant likes
  * until launch. At launch every queued order executes through the ordinary
  * commit, at the same close, in one pass: nobody gets a better price or a head
- * start for having signed up first, and every rule (position caps, the 1% fee,
+ * start for having signed up first, and every rule (position caps, the fee,
  * the ledger invariants) applies exactly as it does to any other trade.
  *
  * Launch happens on its own in the nightly job on the start date, after that
@@ -32,6 +32,56 @@ const launchKey = (competitionId: string, portfolioId: string) =>
 
 export function isPreLaunch(competition: { preLaunch: boolean; launchedAt: Date | null }): boolean {
   return competition.preLaunch && competition.launchedAt === null;
+}
+
+export interface PreLaunchWindow {
+  /** BEFORE: not open yet. OPEN: orders can be queued or changed. CLOSED: locked until launch. */
+  state: "BEFORE" | "OPEN" | "CLOSED";
+  opensOn: DateKey | null;
+  closesOn: DateKey | null;
+  /** When every queued order executes, at the close — also the first valuation. */
+  launchOn: DateKey;
+  /** What to tell someone who cannot queue right now. Null while open. */
+  reason: string | null;
+}
+
+/** Where `today` falls in a pre-launch competition's editing window. */
+export function preLaunchWindow(
+  competition: {
+    startDate: DateKey;
+    preLaunchOpensOn: DateKey | null;
+    preLaunchClosesOn: DateKey | null;
+  },
+  today: DateKey,
+): PreLaunchWindow {
+  const {
+    preLaunchOpensOn: opensOn,
+    preLaunchClosesOn: closesOn,
+    startDate: launchOn,
+  } = competition;
+  const launch = formatDateKeyLong(launchOn);
+  if (opensOn && today < opensOn) {
+    return {
+      state: "BEFORE",
+      opensOn,
+      closesOn,
+      launchOn,
+      reason:
+        `Portfolio building opens on ${formatDateKeyLong(opensOn)}` +
+        (closesOn ? ` and closes on ${formatDateKeyLong(closesOn)}` : "") +
+        `. Every order then executes together at the close on ${launch}.`,
+    };
+  }
+  if ((closesOn && today > closesOn) || today >= launchOn) {
+    return {
+      state: "CLOSED",
+      opensOn,
+      closesOn,
+      launchOn,
+      reason: `Portfolio building closed${closesOn ? ` on ${formatDateKeyLong(closesOn)}` : ""}. Every queued order executes together at the close on ${launch}; after that, changes follow the usual monthly window.`,
+    };
+  }
+  return { state: "OPEN", opensOn, closesOn, launchOn, reason: null };
 }
 
 export async function queuedOrder(
@@ -59,8 +109,22 @@ export async function queuePreLaunchOrder(
 ): Promise<QueueResult> {
   const portfolio = await db.portfolio.findUniqueOrThrow({
     where: { id: args.portfolioId },
-    include: { holdings: { include: { stock: { select: { symbol: true } } } } },
+    include: {
+      holdings: { include: { stock: { select: { symbol: true } } } },
+      competition: {
+        select: { startDate: true, preLaunchOpensOn: true, preLaunchClosesOn: true },
+      },
+    },
   });
+  // The window is enforced here, not only on the page: a server action is
+  // reachable by POST whatever the page showed.
+  const window = preLaunchWindow(portfolio.competition, args.asOfDate);
+  if (window.state !== "OPEN") {
+    return {
+      ok: false,
+      errors: [{ code: "PRE_LAUNCH_CLOSED", message: window.reason ?? "", severity: "ERROR" }],
+    };
+  }
   const { rules } = await loadTradingRules(db, portfolio.competitionId);
   const stockIds = [
     ...new Set([

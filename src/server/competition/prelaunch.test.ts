@@ -6,6 +6,7 @@ import { loadTradingAccess } from "@/server/portfolio/access";
 import { checkPortfolioInvariants } from "@/server/portfolio/invariant";
 import { HOUSE_RULES } from "./house-rules";
 import {
+  preLaunchWindow,
   dueLaunches,
   enrolEveryone,
   isPreLaunch,
@@ -160,5 +161,52 @@ describe("launch", () => {
     expect(
       await db.transaction.count({ where: { portfolioId: alice.portfolio.id, type: "BUY" } }),
     ).toBe(1);
+  });
+});
+
+describe("the editing window", () => {
+  // The schedule for the November start: build 2–6 November, launch the 9th.
+  const competition = {
+    startDate: "2026-11-09",
+    preLaunchOpensOn: "2026-11-02",
+    preLaunchClosesOn: "2026-11-06",
+  };
+
+  it("is closed before it opens, and says when it will", () => {
+    const w = preLaunchWindow(competition, "2026-10-30");
+    expect(w.state).toBe("BEFORE");
+    expect(w.reason).toContain("Monday 2 November");
+    expect(w.reason).toContain("Monday 9 November");
+  });
+
+  it("is open from the first day to the last day, inclusive", () => {
+    expect(preLaunchWindow(competition, "2026-11-02").state).toBe("OPEN");
+    expect(preLaunchWindow(competition, "2026-11-06").state).toBe("OPEN");
+  });
+
+  it("is closed between the last day and the launch", () => {
+    const w = preLaunchWindow(competition, "2026-11-07");
+    expect(w.state).toBe("CLOSED");
+    expect(w.reason).toContain("Friday 6 November");
+  });
+
+  it("refuses an order outside the window on the server, whatever the page showed", async () => {
+    await db.competition.update({
+      where: { id: competitionId },
+      data: {
+        launchedAt: null,
+        startDate: "2026-11-09",
+        preLaunchOpensOn: "2026-11-02",
+        preLaunchClosesOn: "2026-11-06",
+      },
+    });
+    const early = await queuePreLaunchOrder(db, {
+      portfolioId: bob.portfolio.id,
+      targets: [{ stockId, weightPpm: 100_000 }],
+      asOfDate: "2026-10-30",
+    });
+    expect(early.ok).toBe(false);
+    if (!early.ok) expect(early.errors[0]?.code).toBe("PRE_LAUNCH_CLOSED");
+    expect(await queuedOrder(db, bob.portfolio.id)).toBeNull();
   });
 });

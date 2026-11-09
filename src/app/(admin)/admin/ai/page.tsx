@@ -7,7 +7,7 @@ import {
 } from "@/app/actions/ai";
 import { AiStrategyForm, CreateAiInvestorForm } from "@/components/admin-controls";
 import { AllocationEditor } from "@/components/allocation-editor";
-import { TokenBanner } from "@/components/rebalance-token";
+import { FirstBuildNote, TokenBanner } from "@/components/rebalance-token";
 import { PreLaunchBanner } from "@/components/prelaunch-banner";
 import { isPreLaunch, preLaunchWindow, queuedOrder } from "@/server/competition/prelaunch";
 import { Alert, Card, EmptyState } from "@/components/ui";
@@ -120,8 +120,9 @@ export default async function AdminAiPage() {
           const building = preLaunch
             ? preLaunchWindow(comp, dateKeyOf(new Date(), comp.timezone))
             : null;
+          const firstBuild = portfolio.setupCompletedAt === null && queued === null;
           const canTrade = building
-            ? building.state === "OPEN"
+            ? building.state === "OPEN" || firstBuild
             : (access?.decision.allowed ?? false);
 
           return (
@@ -146,9 +147,12 @@ export default async function AdminAiPage() {
                 <PreLaunchBanner
                   window={building ?? preLaunchWindow(comp, dateKeyOf(new Date(), comp.timezone))}
                   queuedPositions={queued ? queued.length : null}
+                  firstBuild={firstBuild}
                 />
               ) : access && !canTrade ? (
                 <TokenBanner tokens={access.tokens} reason={access.decision.reason?.message} />
+              ) : access?.firstBuild ? (
+                <FirstBuildNote tokens={access.tokens} />
               ) : access?.tokens ? (
                 <TokenBanner tokens={access.tokens} />
               ) : null}

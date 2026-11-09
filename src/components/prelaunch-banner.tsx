@@ -9,8 +9,11 @@ import type { PreLaunchWindow } from "@/server/competition/prelaunch";
 export function PreLaunchBanner({
   window,
   queuedPositions,
+  firstBuild = false,
 }: {
   window: PreLaunchWindow;
+  /** Never built and nothing queued: may queue a first portfolio outside the window. */
+  firstBuild?: boolean;
   /** Positions in the queued order; null when nothing is queued yet. */
   queuedPositions: number | null;
 }) {
@@ -27,13 +30,15 @@ export function PreLaunchBanner({
       : `Your portfolio is queued (${queuedPositions} position${queuedPositions === 1 ? "" : "s"}).`;
 
   const title =
-    window.state === "BEFORE"
-      ? `Portfolio building opens on ${formatDateKeyLong(window.opensOn ?? window.launchOn)}`
-      : window.state === "OPEN"
-        ? queued
-          ? "Your portfolio is queued for launch"
-          : `Build your portfolio ${window.closesOn ? `by ${formatDateKeyLong(window.closesOn)}` : `before ${launch}`}`
-        : "Portfolio building is closed";
+    firstBuild && window.state !== "OPEN"
+      ? "You can build your first portfolio now"
+      : window.state === "BEFORE"
+        ? `Portfolio building opens on ${formatDateKeyLong(window.opensOn ?? window.launchOn)}`
+        : window.state === "OPEN"
+          ? queued
+            ? "Your portfolio is queued for launch"
+            : `Build your portfolio ${window.closesOn ? `by ${formatDateKeyLong(window.closesOn)}` : `before ${launch}`}`
+          : "Portfolio building is closed";
 
   return (
     <Alert tone={queued ? "success" : "info"}>
@@ -45,9 +50,11 @@ export function PreLaunchBanner({
         ? window.state === "OPEN"
           ? `${queued} You can still change it.`
           : queued
-        : window.state === "CLOSED"
-          ? "You did not queue a portfolio, so you start in cash and can invest in the next monthly window."
-          : ""}
+        : firstBuild && window.state !== "OPEN"
+          ? `Your first portfolio can be built at any time: queue it now and it executes with everyone else's on ${launch}.`
+          : window.state === "CLOSED"
+            ? "You did not queue a portfolio, so you start in cash and can invest in the next monthly window."
+            : ""}
     </Alert>
   );
 }

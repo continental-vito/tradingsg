@@ -96,6 +96,20 @@ export async function queuedOrder(
   return JSON.parse(row.targetsJson) as RebalanceTarget[];
 }
 
+/**
+ * Whether this portfolio may queue outside the editing window: it has never
+ * been built and has nothing queued. A first portfolio can always be created —
+ * someone who registers after the window closed still joins the launch —
+ * while an order already queued keeps the window's deadline.
+ */
+export async function firstBuildAllowed(
+  db: PrismaClient,
+  portfolio: { id: string; setupCompletedAt: Date | null },
+): Promise<boolean> {
+  if (portfolio.setupCompletedAt !== null) return false;
+  return (await queuedOrder(db, portfolio.id)) === null;
+}
+
 export type QueueResult = { ok: true } | { ok: false; errors: ValidationIssue[] };
 
 /**
@@ -119,7 +133,7 @@ export async function queuePreLaunchOrder(
   // The window is enforced here, not only on the page: a server action is
   // reachable by POST whatever the page showed.
   const window = preLaunchWindow(portfolio.competition, args.asOfDate);
-  if (window.state !== "OPEN") {
+  if (window.state !== "OPEN" && !(await firstBuildAllowed(db, portfolio))) {
     return {
       ok: false,
       errors: [{ code: "PRE_LAUNCH_CLOSED", message: window.reason ?? "", severity: "ERROR" }],

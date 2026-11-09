@@ -75,6 +75,7 @@ describe("the AI investor", () => {
 
   it("is held to the same rebalance token and fee as a person", async () => {
     const before = await loadTradingAccess(db, aiPortfolioId, WEDNESDAY);
+    expect(before?.firstBuild).toBe(true);
     expect(before?.tokens?.remaining).toBe(1);
 
     const result = await commitRebalance(db, {
@@ -89,9 +90,25 @@ describe("the AI investor", () => {
 
     const buy = await db.transaction.findFirstOrThrow({
       where: { portfolioId: aiPortfolioId, type: "BUY" },
+      orderBy: { sequence: "asc" },
     });
     expect(buy.feeCents).toBe((buy.grossCents * 50n + 9_999n) / 10_000n);
     expect(await checkPortfolioInvariants(db, aiPortfolioId)).toEqual([]);
+
+    // That was its first portfolio, which is free; the next change in the
+    // window uses the month's token, as it would for a person.
+    const second = await loadTradingAccess(db, aiPortfolioId, WEDNESDAY);
+    expect(second?.firstBuild).toBe(false);
+    expect(second?.tokens?.remaining).toBe(1);
+    const rebalanced = await commitRebalance(db, {
+      portfolioId: aiPortfolioId,
+      targets: [{ stockId, weightPpm: 200_000 }],
+      idempotencyKey: "ai-august",
+      periodKey: second?.decision.periodKey ?? null,
+      asOfDate: "2026-08-05",
+      executedAt: WEDNESDAY,
+    });
+    expect(rebalanced.ok).toBe(true);
 
     const after = await loadTradingAccess(db, aiPortfolioId, WEDNESDAY);
     expect(after?.decision.allowed).toBe(false);

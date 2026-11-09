@@ -12,7 +12,12 @@ import { commitRebalance, loadTradingRules } from "@/server/portfolio/commit";
 import { buildPriceBook } from "@/server/portfolio/prices";
 import { planRebalance, type ValidationIssue } from "@/server/portfolio/rebalance";
 import { loadTradingAccess } from "@/server/portfolio/access";
-import { isPreLaunch, preLaunchWindow, queuePreLaunchOrder } from "@/server/competition/prelaunch";
+import {
+  firstBuildAllowed,
+  isPreLaunch,
+  preLaunchWindow,
+  queuePreLaunchOrder,
+} from "@/server/competition/prelaunch";
 import type { PortfolioState } from "@/server/portfolio/value";
 
 /**
@@ -138,8 +143,10 @@ async function buildPlan(portfolioId: string, rawTargets: unknown) {
   // and the trading window do not apply: the order is queued, not executed.
   const preLaunch = isPreLaunch(portfolio.competition);
   const building = preLaunch ? preLaunchWindow(portfolio.competition, asOfDate) : null;
+  const canQueue =
+    building !== null && (building.state === "OPEN" || (await firstBuildAllowed(db, portfolio)));
   const window = building
-    ? building.state === "OPEN"
+    ? canQueue
       ? { allowed: true, periodKey: null }
       : {
           allowed: false,

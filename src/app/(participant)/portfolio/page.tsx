@@ -11,7 +11,7 @@ import { requirePlayer } from "@/server/auth/guard";
 import { loadDashboard } from "@/server/dto/portfolio.dto";
 import { db } from "@/server/db";
 import { loadTradingAccess } from "@/server/portfolio/access";
-import { TokenBanner } from "@/components/rebalance-token";
+import { FirstBuildNote, TokenBanner } from "@/components/rebalance-token";
 import { PreLaunchBanner } from "@/components/prelaunch-banner";
 import { isPreLaunch, preLaunchWindow, queuedOrder } from "@/server/competition/prelaunch";
 import { dateKeyOf } from "@/lib/dates";
@@ -35,6 +35,7 @@ export default async function PortfolioPage() {
     ? await db.portfolio.findUnique({
         where: { id: data.participant.portfolioId },
         select: {
+          setupCompletedAt: true,
           competition: {
             select: {
               preLaunch: true,
@@ -60,7 +61,11 @@ export default async function PortfolioPage() {
           dateKeyOf(new Date(), prelaunch.competition.timezone),
         )
       : null;
-  const canTrade = building ? building.state === "OPEN" : (access?.decision.allowed ?? true);
+  // Never built and nothing queued: the first portfolio can always be created.
+  const firstBuild = prelaunch?.setupCompletedAt === null && queued === null;
+  const canTrade = building
+    ? building.state === "OPEN" || firstBuild
+    : (access?.decision.allowed ?? true);
 
   // Shorts are liabilities and cannot be slices of a whole; they are listed
   // under the chart instead. Same split as the dashboard.
@@ -120,9 +125,12 @@ export default async function PortfolioPage() {
             )
           }
           queuedPositions={queued ? queued.length : null}
+          firstBuild={firstBuild}
         />
       ) : access && !canTrade ? (
         <TokenBanner tokens={access.tokens} reason={access.decision.reason?.message} />
+      ) : access?.firstBuild ? (
+        <FirstBuildNote tokens={access.tokens} />
       ) : access?.tokens ? (
         <TokenBanner tokens={access.tokens} />
       ) : null}

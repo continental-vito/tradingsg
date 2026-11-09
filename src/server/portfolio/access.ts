@@ -37,6 +37,13 @@ export interface RebalanceTokens {
 
 export interface TradingAccess {
   decision: WindowDecision;
+  /**
+   * The participant has never built a portfolio. Their first one can be built
+   * on any day, and does not use the monthly token: someone who joins on the
+   * 10th should not sit in cash until the 1st. From then on the normal rule
+   * applies.
+   */
+  firstBuild: boolean;
   /** Null when trading is not limited per period. */
   tokens: RebalanceTokens | null;
   today: DateKey;
@@ -50,6 +57,7 @@ export async function loadTradingAccess(
   const portfolio = await db.portfolio.findUnique({
     where: { id: portfolioId },
     select: {
+      setupCompletedAt: true,
       competition: {
         select: {
           status: true,
@@ -108,6 +116,18 @@ export async function loadTradingAccess(
     now,
   });
 
+  // Only the token rules give way for a first build. A competition that is
+  // over, paused, locked or past its lock date stays closed to everyone.
+  const firstBuild = portfolio.setupCompletedAt === null;
+  const tokenOnly =
+    decision.reason?.code === "PERIOD_LIMIT_REACHED" ||
+    decision.reason?.code === "REBALANCE_WINDOW_CLOSED";
+  const effective: WindowDecision =
+    firstBuild && (decision.allowed || tokenOnly)
+      ? // A null period key: the build is not counted against this period.
+        { allowed: true, periodKey: null }
+      : decision;
+
   const window = openWindow(today, {
     periodUnit,
     periodOpenDays: settings.periodOpenDays,
@@ -116,7 +136,8 @@ export async function loadTradingAccess(
   const expired = window !== null && today > window.closesOn;
 
   return {
-    decision,
+    decision: effective,
+    firstBuild,
     today,
     tokens: limited
       ? {

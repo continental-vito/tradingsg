@@ -190,7 +190,7 @@ describe("the editing window", () => {
     expect(w.reason).toContain("Friday 6 November");
   });
 
-  it("refuses an order outside the window on the server, whatever the page showed", async () => {
+  it("refuses a change outside the window on the server, whatever the page showed", async () => {
     await db.competition.update({
       where: { id: competitionId },
       data: {
@@ -200,13 +200,34 @@ describe("the editing window", () => {
         preLaunchClosesOn: "2026-11-06",
       },
     });
+    // Alice built her portfolio at the launch, so the window applies to her.
     const early = await queuePreLaunchOrder(db, {
-      portfolioId: bob.portfolio.id,
+      portfolioId: alice.portfolio.id,
       targets: [{ stockId, weightPpm: 100_000 }],
       asOfDate: "2026-10-30",
     });
     expect(early.ok).toBe(false);
     if (!early.ok) expect(early.errors[0]?.code).toBe("PRE_LAUNCH_CLOSED");
-    expect(await queuedOrder(db, bob.portfolio.id)).toBeNull();
+    expect(await queuedOrder(db, alice.portfolio.id)).toBeNull();
+  });
+
+  it("lets someone who has never built a portfolio queue their first one at any time", async () => {
+    // Bob never invested and has nothing queued: he joins the launch even
+    // though the window is closed.
+    const late = await queuePreLaunchOrder(db, {
+      portfolioId: bob.portfolio.id,
+      targets: [{ stockId, weightPpm: 100_000 }],
+      asOfDate: "2026-11-08",
+    });
+    expect(late).toEqual({ ok: true });
+
+    // Having queued, he is held to the window like everyone else.
+    const change = await queuePreLaunchOrder(db, {
+      portfolioId: bob.portfolio.id,
+      targets: [{ stockId, weightPpm: 200_000 }],
+      asOfDate: "2026-11-08",
+    });
+    expect(change.ok).toBe(false);
+    expect(await queuedOrder(db, bob.portfolio.id)).toEqual([{ stockId, weightPpm: 100_000 }]);
   });
 });

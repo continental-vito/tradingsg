@@ -17,6 +17,7 @@ const IN_WINDOW = new Date("2026-10-02T10:00:00Z"); // Friday the 2nd
 const AFTER_WINDOW = new Date("2026-10-08T10:00:00Z"); // Thursday the 8th
 const NEXT_MONTH = new Date("2026-11-02T10:00:00Z");
 let bob: Awaited<ReturnType<typeof seedParticipant>>;
+let carol: Awaited<ReturnType<typeof seedParticipant>>; // never builds until the 8th
 
 beforeAll(async () => {
   const t = await createTestDb();
@@ -41,6 +42,23 @@ beforeAll(async () => {
   });
   alice = await seedParticipant(db, competitionId, "alice@example.com");
   bob = await seedParticipant(db, competitionId, "bob@example.com");
+  carol = await seedParticipant(db, competitionId, "carol@example.com");
+  // Alice and Bob invested at the launch (no period key, like the launch
+  // orders), so the monthly rule applies to them from here on.
+  for (const [p, key] of [
+    [alice, "alice-launch"],
+    [bob, "bob-launch"],
+  ] as const) {
+    const launched = await commitRebalance(db, {
+      portfolioId: p.portfolio.id,
+      targets: [{ stockId, weightPpm: 500_000 }],
+      idempotencyKey: key,
+      periodKey: null,
+      asOfDate: "2026-10-01",
+      executedAt: new Date("2026-10-01T20:00:00Z"),
+    });
+    expect(launched.ok).toBe(true);
+  }
 }, 60_000);
 
 afterAll(async () => {
@@ -65,7 +83,7 @@ describe("the monthly rebalance token, open in the first week", () => {
     const before = await loadTradingAccess(db, alice.portfolio.id, IN_WINDOW);
     const result = await commitRebalance(db, {
       portfolioId: alice.portfolio.id,
-      targets: [{ stockId, weightPpm: 500_000 }],
+      targets: [{ stockId, weightPpm: 600_000 }],
       idempotencyKey: "alice-october",
       periodKey: before?.decision.periodKey ?? null,
       asOfDate: "2026-10-02",
@@ -100,19 +118,55 @@ describe("the monthly rebalance token, open in the first week", () => {
   });
 });
 
+describe("the first portfolio", () => {
+  it("can be built after the window has closed, and does not use the token", async () => {
+    const access = await loadTradingAccess(db, carol.portfolio.id, AFTER_WINDOW);
+    expect(access?.firstBuild).toBe(true);
+    expect(access?.decision).toEqual({ allowed: true, periodKey: null });
+
+    const built = await commitRebalance(db, {
+      portfolioId: carol.portfolio.id,
+      targets: [{ stockId, weightPpm: 400_000 }],
+      idempotencyKey: "carol-first",
+      periodKey: access?.decision.periodKey ?? null,
+      asOfDate: "2026-10-08",
+      executedAt: AFTER_WINDOW,
+    });
+    expect(built.ok).toBe(true);
+    expect(await checkPortfolioInvariants(db, carol.portfolio.id)).toEqual([]);
+  });
+
+  it("is followed by the normal rule: no second change outside the window", async () => {
+    const access = await loadTradingAccess(db, carol.portfolio.id, AFTER_WINDOW);
+    expect(access?.firstBuild).toBe(false);
+    expect(access?.decision.allowed).toBe(false);
+    expect(access?.decision.reason?.code).toBe("REBALANCE_WINDOW_CLOSED");
+  });
+
+  it("left next month's token untouched", async () => {
+    const access = await loadTradingAccess(db, carol.portfolio.id, NEXT_MONTH);
+    expect(access?.decision.allowed).toBe(true);
+    expect(access?.tokens).toMatchObject({ used: 0, remaining: 1 });
+  });
+});
+
 describe("the 0.5% transaction cost", () => {
   it("charges 0.5% of the order on top of the purchase, and the ledger still reconciles", async () => {
     const portfolio = await db.portfolio.findUniqueOrThrow({
       where: { id: alice.portfolio.id },
-      include: { transactions: { where: { type: "BUY" } } },
+      include: { transactions: { where: { type: "BUY" }, orderBy: { sequence: "asc" } } },
     });
     const buy = portfolio.transactions[0];
     expect(buy).toBeDefined();
     if (!buy) return;
-    // 0.5% of the order, rounded up to the cent, and capitalised into the cost.
-    expect(buy.feeCents).toBe((buy.grossCents * 50n + 9_999n) / 10_000n);
-    expect(buy.cashDeltaCents).toBe(-(buy.grossCents + buy.feeCents));
-    expect(portfolio.totalFeesCents).toBe(buy.feeCents);
+    // 0.5% of every order, rounded up to the cent, and capitalised into the cost.
+    for (const t of portfolio.transactions) {
+      expect(t.feeCents).toBe((t.grossCents * 50n + 9_999n) / 10_000n);
+      expect(t.cashDeltaCents).toBe(-(t.grossCents + t.feeCents));
+    }
+    expect(portfolio.totalFeesCents).toBe(
+      portfolio.transactions.reduce((sum, t) => sum + t.feeCents, 0n),
+    );
     // The 50% is 50% of what is left AFTER the fee, not of the value before it.
     const after = 10_000_000n - buy.feeCents;
     expect(Number((buy.grossCents * 1_000_000n) / after)).toBeGreaterThanOrEqual(499_990);

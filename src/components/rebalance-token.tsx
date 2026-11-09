@@ -3,6 +3,7 @@ import { formatDateKeyLong } from "@/lib/dates";
 import type { RebalanceTokens } from "@/server/portfolio/access";
 
 const UNIT = { DAY: "daily", WEEK: "weekly", MONTH: "monthly" } as const;
+const PERIOD = { DAY: "day", WEEK: "week", MONTH: "month" } as const;
 
 /**
  * The rebalance-token state, in one sentence.
@@ -50,6 +51,23 @@ export function TokenBanner({
       ) : (
         <>; a fresh token arrives on {formatDateKeyLong(tokens.refillsOn)}.</>
       )}
+    </p>
+  );
+}
+
+/**
+ * For someone who has never built a portfolio. Their first build is allowed on
+ * any day and does not use the monthly token, so the token banner — which
+ * would talk about windows and expiry — would only mislead them.
+ */
+export function FirstBuildNote({ tokens }: { tokens: RebalanceTokens | null }) {
+  return (
+    <p className="rounded-lg border border-[var(--border)] px-4 py-3 text-sm text-[var(--text-muted)]">
+      <span className="font-medium text-[var(--text)]">This is your first portfolio.</span> You can
+      build it on any day, and it does not use your rebalance token.
+      {tokens
+        ? ` After that, changes follow the normal rule: one per ${PERIOD[tokens.periodUnit]}${tokens.usableUntil ? ", in its first days only" : ""}.`
+        : ""}
     </p>
   );
 }

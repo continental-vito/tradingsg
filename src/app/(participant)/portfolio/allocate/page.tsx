@@ -12,7 +12,7 @@ import { db } from "@/server/db";
 import { formatCents } from "@/server/money";
 import { loadAllocatable } from "@/server/dto/allocation";
 import { loadTradingAccess } from "@/server/portfolio/access";
-import { TokenBanner } from "@/components/rebalance-token";
+import { FirstBuildNote, TokenBanner } from "@/components/rebalance-token";
 import { PreLaunchBanner } from "@/components/prelaunch-banner";
 import { isPreLaunch, preLaunchWindow, queuedOrder } from "@/server/competition/prelaunch";
 
@@ -62,6 +62,8 @@ export default async function AllocatePage() {
   const preLaunch = isPreLaunch(competition);
   const building = preLaunch ? preLaunchWindow(competition, asOfDate) : null;
   const queued = preLaunch ? await queuedOrder(db, portfolio.id) : null;
+  // Never built, nothing queued: the first portfolio can always be created.
+  const firstBuild = portfolio.setupCompletedAt === null && queued === null;
   if (!preLaunch && access && !access.decision.allowed) {
     return (
       <div className="space-y-6">
@@ -112,13 +114,16 @@ export default async function AllocatePage() {
       {preLaunch ? (
         <PreLaunchBanner
           window={building ?? preLaunchWindow(competition, asOfDate)}
+          firstBuild={firstBuild}
           queuedPositions={queued ? queued.length : null}
         />
+      ) : access?.firstBuild ? (
+        <FirstBuildNote tokens={access.tokens} />
       ) : access?.tokens ? (
         <TokenBanner tokens={access.tokens} />
       ) : null}
 
-      {building && building.state !== "OPEN" ? null : stocks.length === 0 ? (
+      {building && building.state !== "OPEN" && !firstBuild ? null : stocks.length === 0 ? (
         <Alert>
           No stock in this competition has a price yet, so nothing can be allocated. Prices are
           written by the market-data job — ask the administrator to run it.

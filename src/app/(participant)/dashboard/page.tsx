@@ -59,11 +59,18 @@ export default async function DashboardPage() {
     if (comp && portfolioId && isPreLaunch(comp)) {
       const queued = await queuedOrder(db, portfolioId);
       const building = preLaunchWindow(comp, dateKeyOf(new Date(), comp.timezone));
+      // The dashboard's pre-launch branch only renders for someone not yet
+      // invested, so nothing queued is all that makes it a first build.
+      const firstBuild = queued === null;
       return (
         <div className="space-y-6">
           <Header data={data} />
-          <PreLaunchBanner window={building} queuedPositions={queued ? queued.length : null} />
-          {building.state === "OPEN" ? (
+          <PreLaunchBanner
+            window={building}
+            queuedPositions={queued ? queued.length : null}
+            firstBuild={firstBuild}
+          />
+          {building.state === "OPEN" || firstBuild ? (
             <Link
               href="/portfolio/allocate"
               className="inline-block rounded-lg bg-accent-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-accent-700"

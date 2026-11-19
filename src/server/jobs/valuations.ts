@@ -1,12 +1,8 @@
 import { dateKeyToUtc, type DateKey } from "@/lib/dates";
 import { buildPriceBook } from "@/server/portfolio/prices";
 import { assertPnlIdentity } from "@/server/portfolio/invariant";
-import {
-  chainLinkedTwrPpm,
-  periodReturnPpm,
-  valuePortfolio,
-  type PortfolioState,
-} from "@/server/portfolio/value";
+import { stateFromLedger } from "@/server/portfolio/ledger-state";
+import { chainLinkedTwrPpm, periodReturnPpm, valuePortfolio } from "@/server/portfolio/value";
 import type { JobContext, JobResult } from "./run";
 
 /**
@@ -41,10 +37,31 @@ export async function snapshotValuations(
   const portfolios = await db.portfolio.findMany({
     where: { competitionId, participant: { deletedAt: null } },
     include: {
-      holdings: { include: { stock: { select: { symbol: true } } } },
       participant: { select: { id: true, initialCapitalCents: true } },
+      // The position at THIS date's close, not now: catching up a missed night
+      // must not value it with trades made since. Every ledger row up to and
+      // including the day — a trade executes at that day's close — plus the
+      // starting capital whatever its date: it is the baseline, and a launch
+      // brought forward starts the competition before the date it carries.
+      transactions: {
+        where: { OR: [{ tradeDate: { lte: asOfDate } }, { type: "INITIAL_FUNDING" }] },
+        select: {
+          type: true,
+          stockId: true,
+          microShareDelta: true,
+          cashDeltaCents: true,
+          costAddedCents: true,
+          costRemovedCents: true,
+          realizedPnlCents: true,
+          feeCents: true,
+          isExternalFlow: true,
+        },
+      },
     },
   });
+  const symbols = new Map(
+    (await db.stock.findMany({ select: { id: true, symbol: true } })).map((s) => [s.id, s.symbol]),
+  );
 
   if (portfolios.length === 0) {
     log("No portfolios to value.");
@@ -55,32 +72,23 @@ export async function snapshotValuations(
   let degraded = 0;
 
   for (const portfolio of portfolios) {
-    const stockIds = portfolio.holdings.filter((h) => h.microShares !== 0n).map((h) => h.stockId);
+    const state = stateFromLedger(
+      portfolio.initialCapitalCents,
+      portfolio.transactions,
+      (id) => symbols.get(id) ?? id,
+    );
+    const stockIds = state.holdings.filter((h) => h.microShares !== 0n).map((h) => h.stockId);
 
     const book = await buildPriceBook(db, stockIds, asOfDate, {
       maxStalenessDays,
       costBasisFallback: new Map(
-        portfolio.holdings.map((h) => [
+        state.holdings.map((h) => [
           h.stockId,
           { microShares: h.microShares, costBasisCents: h.costBasisCents },
         ]),
       ),
     });
     if (book.quality !== "OK") degraded++;
-
-    const state: PortfolioState = {
-      cashCents: portfolio.cashCents,
-      initialCapitalCents: portfolio.initialCapitalCents,
-      netFlowCents: portfolio.netFlowCents,
-      realizedPnlCents: portfolio.realizedPnlCents,
-      holdings: portfolio.holdings.map((h) => ({
-        stockId: h.stockId,
-        symbol: h.stock.symbol,
-        microShares: h.microShares,
-        costBasisCents: h.costBasisCents,
-        realizedPnlCents: h.realizedPnlCents,
-      })),
-    };
 
     const value = valuePortfolio(state, book);
 
@@ -90,8 +98,8 @@ export async function snapshotValuations(
     assertPnlIdentity(portfolio.id, {
       totalValueCents: value.totalValueCents,
       initialCapitalCents: portfolio.initialCapitalCents,
-      netFlowCents: portfolio.netFlowCents,
-      realizedPnlCents: portfolio.realizedPnlCents,
+      netFlowCents: state.netFlowCents,
+      realizedPnlCents: state.realizedPnlCents,
       unrealizedPnlCents: value.unrealizedPnlCents,
     });
 
@@ -106,7 +114,7 @@ export async function snapshotValuations(
     // link's base zero, which the TWR skips — so every portfolio's return was
     // measured from its first close rather than from its starting capital, and
     // the leaderboard disagreed with the value column beside it.
-    const flowInPeriodCents = previous ? portfolio.netFlowCents - previous.netFlowCents : 0n;
+    const flowInPeriodCents = previous ? state.netFlowCents - previous.netFlowCents : 0n;
 
     const dailyReturnPpm = previous
       ? periodReturnPpm(previous.totalValueCents, value.totalValueCents, flowInPeriodCents)
@@ -121,8 +129,13 @@ export async function snapshotValuations(
       },
       orderBy: { asOfDate: "desc" },
     });
+    // Capital added during the week is not a gain, exactly as for the day.
     const weeklyReturnPpm = weekAgo
-      ? periodReturnPpm(weekAgo.totalValueCents, value.totalValueCents)
+      ? periodReturnPpm(
+          weekAgo.totalValueCents,
+          value.totalValueCents,
+          state.netFlowCents - weekAgo.netFlowCents,
+        )
       : null;
 
     // Strictly BEFORE this date. A re-run finds its own previous row still
@@ -163,12 +176,12 @@ export async function snapshotValuations(
           holdingsValueCents: value.holdingsValueCents,
           totalValueCents: value.totalValueCents,
           initialCapitalCents: portfolio.initialCapitalCents,
-          netFlowCents: portfolio.netFlowCents,
+          netFlowCents: state.netFlowCents,
           flowInPeriodCents,
           costBasisCents: value.costBasisCents,
           realizedPnlCents: value.realizedPnlCents,
           unrealizedPnlCents: value.unrealizedPnlCents,
-          cumulativeFeesCents: portfolio.totalFeesCents,
+          cumulativeFeesCents: state.feesCents,
           totalReturnPpm: value.totalReturnPpm,
           twrPpm,
           dailyReturnPpm,
@@ -179,7 +192,7 @@ export async function snapshotValuations(
           stalePriceCount: book.staleCount,
           // A portfolio that has never bought anything is all cash at exactly
           // 0.00%. It is excluded from the ranking, not ranked mid-table.
-          isRankEligible: portfolio.setupCompletedAt !== null && value.positionCount > 0,
+          isRankEligible: state.hasTraded && value.positionCount > 0,
           previousValuationId: previous?.id ?? null,
         },
       });
@@ -197,7 +210,7 @@ export async function snapshotValuations(
             costBasisCents: holding.costBasisCents,
             unrealizedPnlCents: holding.unrealizedPnlCents,
             realizedPnlCents:
-              portfolio.holdings.find((h) => h.stockId === holding.stockId)?.realizedPnlCents ?? 0n,
+              state.holdings.find((h) => h.stockId === holding.stockId)?.realizedPnlCents ?? 0n,
             weightPpm: holding.weightPpm,
             positionReturnPpm: holding.positionReturnPpm,
             dayChangePpm: null,
